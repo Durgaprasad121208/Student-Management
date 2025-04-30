@@ -1,0 +1,121 @@
+const Notification = require('../models/Notification');
+const User = require('../models/User');
+
+// Mark all notifications as read for the authenticated user
+exports.markAllAsRead = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    // Update all notifications for this user, their section/year, or all
+    const result = await Notification.updateMany({
+      $or: [
+        { userId },
+        { target: 'all' },
+        { target: 'section', section: req.user.section },
+        { target: 'year', year: req.user.year },
+      ],
+      read: false
+    }, { $set: { read: true } });
+    res.json({ message: 'All notifications marked as read', updatedCount: result.modifiedCount });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Mark a notification as read for the authenticated user
+exports.markAsRead = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const notificationId = req.params.id;
+    // Only allow marking notifications that are for this user, or targeted to their section/year/all
+    const notification = await Notification.findOne({
+      _id: notificationId,
+      $or: [
+        { userId },
+        { target: 'all' },
+        { target: 'section', section: req.user.section },
+        { target: 'year', year: req.user.year },
+      ]
+    });
+    if (!notification) return res.status(404).json({ message: 'Notification not found' });
+    notification.read = true;
+    await notification.save();
+    res.json({ message: 'Notification marked as read', notification });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Get notifications for the authenticated student
+exports.getMyNotifications = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const section = req.user.section || req.user.section;
+    const year = req.user.year || req.user.year;
+    // Find notifications for this user, their section/year, or broadcast
+    const notifications = await Notification.find({
+      $or: [
+        { userId },
+        { target: 'all' },
+        { target: 'section', section: req.user.section },
+        { target: 'year', year: req.user.year },
+      ]
+    }).sort({ createdAt: -1 });
+    res.json(notifications);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Get all notifications
+exports.getNotifications = async (req, res) => {
+  try {
+    let notifications = await Notification.find().sort({ createdAt: -1 });
+    res.json(notifications);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Create/send a notification
+const Student = require('../models/Student');
+exports.createNotification = async (req, res) => {
+  try {
+    const { message, type = 'info', target = 'all', year = '', section = '' } = req.body;
+    let notifications = [];
+    if (target === 'year' && year) {
+      // Send to all students in the specified year
+      const students = await Student.find({ year });
+      notifications = await Promise.all(students.map(student => {
+        const notif = new Notification({ message, type, target, year, userId: student.userId });
+        return notif.save();
+      }));
+    } else if (target === 'section' && year && section) {
+      // Send to all students in the specified section and year
+      const students = await Student.find({ year, section });
+      notifications = await Promise.all(students.map(student => {
+        const notif = new Notification({ message, type, target, year, section, userId: student.userId });
+        return notif.save();
+      }));
+    } else {
+      // Broadcast to all
+      const notification = new Notification({ message, type, target: 'all' });
+      await notification.save();
+      notifications = [notification];
+    }
+    res.status(201).json({ message: 'Notification(s) sent', count: notifications.length });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Delete a notification
+exports.deleteNotification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await Notification.findByIdAndDelete(id);
+    if (!deleted) return res.status(404).json({ message: 'Notification not found' });
+    res.json({ message: 'Notification deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
