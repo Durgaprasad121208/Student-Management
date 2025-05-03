@@ -11,5 +11,7 @@ router.get('/:studentId', auth(['admin', 'student']), notificationController.get
 router.post('/', auth('admin'), notificationController.createNotification);
 // Delete notification (admin)
 router.delete('/:id', auth('admin'), notificationController.deleteNotification);
+// Bulk delete notifications (admin)
+router.delete('/bulk', auth('admin'), notificationController.bulkDeleteNotifications);
 
 module.exports = router;

@@ -228,7 +228,7 @@ export default function QuizzesManage() {
                   <td className="p-2">{quiz.year}</td>
                   <td className="p-2">{quiz.semester}</td>
                   <td className="p-2">{quiz.deadline?.substr(0, 10)}</td>
-                  <td className="p-2 space-x-2">
+                  <td className="p-2 space-x-2 text-center">
                     <button
   onClick={() => setViewQuiz(viewQuiz && viewQuiz._id === quiz._id ? null : quiz)}
   aria-label={viewQuiz && viewQuiz._id === quiz._id ? 'Hide Quiz Details' : 'View Quiz Details'}

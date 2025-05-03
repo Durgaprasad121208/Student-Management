@@ -15,5 +15,9 @@ router.get('/', auth(['admin', 'student']), quizController.getQuizzes);
 router.get('/attempts/:studentId', auth(['admin', 'student']), quizController.getStudentAttempts);
 // Get available quizzes for a specific student
 router.get('/available/:studentId', auth(['admin', 'student']), quizController.getAvailableQuizzes);
+// Student: Get all quizzes for their section/year/semester/subject with status
+router.get('/all-with-status/:studentId', auth(['student']), quizController.getAllQuizzesWithStatus);
+// Student: Submit quiz attempt
+router.post('/:id/submit', auth(['student']), quizController.submitQuiz);
 
 module.exports = router;

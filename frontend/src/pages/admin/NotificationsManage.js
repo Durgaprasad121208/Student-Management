@@ -8,6 +8,7 @@ export default function NotificationsManage() {
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [form, setForm] = useState({ message: '', type: 'info', target: 'all', year: '', section: '' });
+  const [selected, setSelected] = useState([]);
 
   const fetchNotifications = async () => {
     setLoading(true);
@@ -69,6 +70,35 @@ export default function NotificationsManage() {
     }
   };
 
+  const handleSelect = (id, checked) => {
+    setSelected(sel => checked ? [...sel, id] : sel.filter(x => x !== id));
+  };
+  const handleSelectAll = e => {
+    if (e.target.checked) {
+      setSelected(notifications.map(n => n._id));
+    } else {
+      setSelected([]);
+    }
+  };
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selected.length} selected notifications?`)) return;
+    setLoading(true);
+    setError('');
+    try {
+      await apiRequest('/notification/bulk', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selected })
+      });
+      setSelected([]);
+      fetchNotifications();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <h2 className="text-2xl font-bold mb-4">Notifications Management</h2>
@@ -107,6 +137,11 @@ export default function NotificationsManage() {
         )}
         <button className="bg-primary text-white px-4 py-2 rounded" type="submit">Send</button>
       </form>
+      {selected.length > 0 && (
+        <button className="bg-red-600 text-white px-4 py-2 rounded mb-2" onClick={handleBulkDelete}>
+          Delete Selected ({selected.length})
+        </button>
+      )}
       {msg && <div className="mb-2 text-green-600">{msg}</div>}
       {error && <div className="mb-2 text-red-600">{error}</div>}
       {loading ? <div>Loading...</div> : (
@@ -114,6 +149,7 @@ export default function NotificationsManage() {
           <table className="w-full border mt-4">
             <thead>
               <tr className="bg-gray-100">
+                <th className="p-2"><input type="checkbox" onChange={handleSelectAll} checked={selected.length === notifications.length && notifications.length > 0} /></th>
                 <th className="p-2">Message</th>
                 <th className="p-2">Type</th>
                 <th className="p-2">Target</th>
@@ -124,10 +160,13 @@ export default function NotificationsManage() {
             <tbody>
               {notifications.map(n => (
                 <tr key={n._id} className="border-t">
-                  <td className="p-2">{n.message}</td>
-                  <td className="p-2">{n.type}</td>
-                  <td className="p-2">{n.target || 'all'}{n.section ? ` (${n.section === '' ? 'All Sections' : n.section})` : ''}{n.year ? ` (${n.year})` : ''}</td>
-                  <td className="p-2">{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</td>
+                  <td className="p-2 text-center">
+                    <input type="checkbox" checked={selected.includes(n._id)} onChange={e => handleSelect(n._id, e.target.checked)} />
+                  </td>
+                  <td className="p-2 text-center">{n.message}</td>
+                  <td className="p-2 text-center">{n.type}</td>
+                  <td className="p-2 text-center">{n.target || 'all'}{n.section ? ` (${n.section === '' ? 'All Sections' : n.section})` : ''}{n.year ? ` (${n.year})` : ''}</td>
+                  <td className="p-2 text-center">{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</td>
                   <td className="p-2 text-center">
                     <button title="Delete" className="text-red-600 hover:text-red-800 mx-1 align-middle" onClick={() => handleDelete(n._id)}>
                       <TrashIcon className="inline-block align-middle" />

@@ -4,6 +4,9 @@ const reportController = require('../controllers/reportController');
 const auth = require('../middleware/auth');
 
 // Generate a PDF report for a student
+router.post('/student', auth(['admin', 'student']), reportController.generateStudentReport);
+router.post('/student/:studentId', auth(['admin', 'student']), reportController.generateStudentReport);
+router.get('/student', auth(['admin', 'student']), reportController.generateStudentReport);
 router.get('/student/:studentId', auth(['admin', 'student']), reportController.generateStudentReport);
 router.get('/class', auth(['admin']), reportController.generateClassReport);
 // Admin: Get all reports

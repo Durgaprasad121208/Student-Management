@@ -160,7 +160,7 @@ exports.getMyAttendance = async (req, res) => {
     let filter = {};
     // Ensure studentId is ObjectId for query
     try {
-      filter.studentId = new require('mongoose').Types.ObjectId(studentId);
+      filter.studentId = new mongoose.Types.ObjectId(studentId);
     } catch (e) {
       return res.status(400).json({ message: 'Invalid studentId format.' });
     }
@@ -181,9 +181,8 @@ exports.getMyAttendance = async (req, res) => {
     const presents = records.filter(r => r.status === 'Present').length;
     const total = records.length;
     const percentage = total > 0 ? (presents / total) * 100 : 0;
-    // Only return present records in the response
-    const presentRecords = records.filter(r => r.status === 'Present');
-    res.json({ presents, total, percentage, records: presentRecords, attendanceCount });
+    // Return all records (Present and Absent)
+    res.json({ presents, total, percentage, records, attendanceCount });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -198,27 +197,32 @@ exports.getMyAttendanceSummary = async (req, res) => {
     if (!semester) return res.status(400).json({ message: 'Semester is required.' });
     let filter = {};
     try {
-      filter.studentId = new require('mongoose').Types.ObjectId(studentId);
+      filter.studentId = new mongoose.Types.ObjectId(studentId);
     } catch (e) {
       return res.status(400).json({ message: 'Invalid studentId format.' });
     }
     filter.semester = semester;
-    // Group by subject and summarize
+    // Find all subjects for this year/semester
+    const student = await require('../models/Student').findById(studentId);
+    const year = student.year;
+    const subjects = await require('../models/Subject').find({ year, semester: semester === 'sem1' ? '1' : '2' });
+    // Get all attendance records for this student and semester
     const records = await Attendance.find(filter);
-    const summary = {};
-    for (const rec of records) {
-      if (!summary[rec.subject]) summary[rec.subject] = { total: 0, presents: 0 };
-      summary[rec.subject].total++;
-      if (rec.status === 'Present') summary[rec.subject].presents++;
-    }
-    // Format summary
-    const result = Object.entries(summary).map(([subject, stats]) => ({
-      subject,
-      total: stats.total,
-      presents: stats.presents,
-      percentage: stats.total > 0 ? (stats.presents / stats.total) * 100 : 0
-    }));
-    res.json({ summary: result });
+    // Group by subject, count present/absent, and show 0 if not marked
+    const summary = subjects.map(subject => {
+      const subjectRecords = records.filter(r => r.subject === subject.name);
+      const total = subjectRecords.length;
+      const presents = subjectRecords.filter(r => r.status === 'Present').length;
+      const absents = subjectRecords.filter(r => r.status === 'Absent').length;
+      return {
+        subject: subject.name,
+        total,
+        presents,
+        absents,
+        percentage: total > 0 ? (presents / total) * 100 : 0
+      };
+    });
+    res.json({ summary });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -234,7 +238,7 @@ exports.getStudentAttendanceSummary = async (req, res) => {
     }
     if (!semester) return res.status(400).json({ message: 'Semester is required.' });
     let filter = {};
-    filter.studentId = new require('mongoose').Types.ObjectId(studentId);
+    filter.studentId = new mongoose.Types.ObjectId(studentId);
     filter.semester = semester;
 
     // Debug logging

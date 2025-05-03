@@ -139,6 +139,25 @@ exports.createNotification = async (req, res) => {
   }
 };
 
+// Bulk delete notifications
+exports.bulkDeleteNotifications = async (req, res) => {
+  try {
+    // Accept array of notification IDs in req.body.ids
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'No notification IDs provided for bulk deletion.' });
+    }
+    // Only allow deletion by admin
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: Only admins can bulk delete notifications.' });
+    }
+    const result = await Notification.deleteMany({ _id: { $in: ids } });
+    res.json({ message: 'Notifications deleted', deletedCount: result.deletedCount });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 // Delete a notification
 exports.deleteNotification = async (req, res) => {
   try {

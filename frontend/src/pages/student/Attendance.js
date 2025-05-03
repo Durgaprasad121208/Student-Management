@@ -38,6 +38,18 @@ export default function StudentAttendance() {
       });
   }, []);
 
+  // Helper: get backend semester for attendance (Attendance model uses 'sem1'/'sem2'), but subject fetch uses '1'/'2'
+  const getBackendSemesterForAttendance = (sem) => {
+    if (sem === 'sem1' || sem === '1') return 'sem1';
+    if (sem === 'sem2' || sem === '2') return 'sem2';
+    return sem;
+  };
+  const getBackendSemesterForSubject = (sem) => {
+    if (sem === 'sem1' || sem === '1') return '1';
+    if (sem === 'sem2' || sem === '2') return '2';
+    return sem;
+  };
+
   // Fetch subjects from database whenever semester changes (with value mapping)
   useEffect(() => {
     if (!studentYear || !semesterFilter) {
@@ -45,10 +57,9 @@ export default function StudentAttendance() {
       setSubjectFilter('');
       return;
     }
-    // Map year and semester to backend values for subject fetch
     const yearMap = { '1': 'E-1', '2': 'E-2', '3': 'E-3', '4': 'E-4', 'E-1': 'E-1', 'E-2': 'E-2', 'E-3': 'E-3', 'E-4': 'E-4' };
     const backendYear = yearMap[studentYear] || studentYear;
-    const backendSemester = semesterFilter === 'sem1' ? '1' : semesterFilter === 'sem2' ? '2' : semesterFilter;
+    const backendSemester = getBackendSemesterForSubject(semesterFilter);
     apiRequest(`/subject?year=${backendYear}&semester=${backendSemester}`)
       .then(data => {
         setSubjects(data);
@@ -64,47 +75,36 @@ export default function StudentAttendance() {
     setError('');
     setSummary([]);
     setAttendance({ records: [], total: 0, presents: 0, percentage: 0, attendanceCount: 0 });
-    const params = [];
-    if (semesterFilter) params.push(`semester=${semesterFilter}`);
-    if (subjectFilter) params.push(`subject=${encodeURIComponent(subjectFilter)}`);
-    // Fetch student profile first to get student._id
-    if (subjectFilter) {
-      apiRequest('/student/my')
-        .then(student => {
-          if (!student || !student._id) throw new Error('Student profile not found');
-          const url = `/attendance/${student._id}${params.length ? '?' + params.join('&') : ''}`;
-          return apiRequest(url);
-        })
-        .then(data => {
-          setAttendance({
-            records: Array.isArray(data.records) ? data.records : [],
-            total: typeof data.total === 'number' ? data.total : 0,
-            presents: typeof data.presents === 'number' ? data.presents : 0,
-            percentage: typeof data.percentage === 'number' ? data.percentage : 0,
-            attendanceCount: data.records ? data.records.length : 0
+    apiRequest('/student/my')
+      .then(student => {
+        if (!student || !student._id) throw new Error('Student profile not found');
+        const backendSemester = getBackendSemesterForAttendance(semesterFilter);
+        if (subjectFilter) {
+          const url = `/attendance/${student._id}?semester=${backendSemester}&subject=${encodeURIComponent(subjectFilter)}`;
+          return apiRequest(url).then(data => {
+            setAttendance({
+              records: Array.isArray(data.records) ? data.records : [],
+              total: typeof data.total === 'number' ? data.total : 0,
+              presents: typeof data.presents === 'number' ? data.presents : 0,
+              percentage: typeof data.percentage === 'number' ? data.percentage : 0,
+              attendanceCount: data.records ? data.records.length : 0
+            });
+            setSummary([]);
           });
-        })
-        .catch(e => setError(e.message))
-        .finally(() => setLoading(false));
-    } else if (semesterFilter) {
-      // Only semester selected: fetch summary for all subjects
-      apiRequest('/student/my')
-        .then(student => {
-          if (!student || !student._id || typeof student._id !== 'string' || student._id.length !== 24) {
-            setError('Student profile not found or invalid. Please re-login.');
-            setLoading(false);
-            return;
-          }
-          return apiRequest(`/attendance/${student._id}/summary?semester=${semesterFilter}`);
-        })
-        .then(data => {
-          if (data) setSummary(Array.isArray(data.summary) ? data.summary : []);
-        })
-        .catch(e => setError(e.message))
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+        } else if (semesterFilter) {
+          return apiRequest(`/attendance/${student._id}/summary?semester=${backendSemester}`).then(data => {
+            setSummary(Array.isArray(data.summary) ? data.summary : []);
+            setAttendance({ records: [], total: 0, presents: 0, percentage: 0, attendanceCount: 0 });
+          });
+        } else {
+          setAttendance({ records: [], total: 0, presents: 0, percentage: 0, attendanceCount: 0 });
+          setSummary([]);
+          setLoading(false);
+          return;
+        }
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { fetchAttendance(); }, [user, semesterFilter, subjectFilter]);
@@ -121,7 +121,7 @@ export default function StudentAttendance() {
     );
   }
 
-  // UI for summary table
+  // Update summary table to show absents and not show subjects not marked
   function SummaryTable() {
     if (summary.length === 0) return (
       <div className="text-gray-600">No attendance records found for this semester.</div>
@@ -133,15 +133,17 @@ export default function StudentAttendance() {
             <th className="p-2 text-center">Subject</th>
             <th className="p-2 text-center">Total Classes</th>
             <th className="p-2 text-center">Present</th>
+            <th className="p-2 text-center">Absent</th>
             <th className="p-2 text-center">Attendance %</th>
           </tr>
         </thead>
         <tbody>
-          {summary.map(s => (
+          {summary.filter(s => s.total > 0).map(s => (
             <tr key={s.subject} className="border-t hover:bg-blue-50 transition-all">
               <td className="p-2 text-center">{s.subject}</td>
               <td className="p-2 text-center">{s.total}</td>
               <td className="p-2 text-center">{s.presents}</td>
+              <td className="p-2 text-center">{s.absents}</td>
               <td className="p-2 text-center">
                 <span className={s.percentage >= 75 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
                   {s.percentage.toFixed(1)}%

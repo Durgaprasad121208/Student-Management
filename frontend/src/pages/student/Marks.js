@@ -16,7 +16,19 @@ export default function StudentMarks() {
 
   // Unique filter options
   const assessmentTypes = Array.from(new Set(marks.map(m => m.assessmentType))).filter(Boolean);
-  const semesters = Array.from(new Set(marks.map(m => m.semester))).filter(Boolean);
+  // Fix: Only show semesters that exist in subjects for the student's year
+  const semesters = Array.from(new Set(subjects.map(s => s.semester))).filter(Boolean);
+
+  // --- SEMESTER FILTERS ---
+  const SEMESTER_OPTIONS = [
+    { value: 'sem1', label: 'Semester 1' },
+    { value: 'sem2', label: 'Semester 2' }
+  ];
+  const semesterMapToBackend = { sem1: 'sem1', sem2: 'sem2', '1': 'sem1', '2': 'sem2' };
+  const semesterMapToFrontend = { sem1: 'sem1', sem2: 'sem2', '1': 'sem1', '2': 'sem2' };
+
+  // --- YEAR MAP (for backend compatibility) ---
+  const yearMap = { '1': 'E-1', '2': 'E-2', '3': 'E-3', '4': 'E-4', 'E-1': 'E-1', 'E-2': 'E-2', 'E-3': 'E-3', 'E-4': 'E-4' };
 
   useEffect(() => {
     if (!user || !user._id) return;
@@ -26,31 +38,32 @@ export default function StudentMarks() {
     apiRequest('/student/my')
       .then(student => {
         if (!student || !student._id) throw new Error('Student profile not found');
+        // Also store year for subject filtering
+        setStudentYear(student.year || '');
         return apiRequest(`/marks/${student._id}`);
       })
       .then(data => {
-        setMarks(Array.isArray(data) ? data : []);
-        setFiltered(Array.isArray(data) ? data : []);
+        // Map backend semester values to frontend values for filtering
+        const mapped = Array.isArray(data) ? data.map(m => ({ ...m, semester: semesterMapToFrontend[m.semester] || m.semester })) : [];
+        setMarks(mapped);
+        setFiltered(mapped);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [user]);
 
-  useEffect(() => {
-    apiRequest('/student/my')
-      .then(profile => setStudentYear(profile.year || ''));
-  }, []);
-
+  // Fetch subjects for the selected year and semester (backend expects mapped values)
   useEffect(() => {
     if (!studentYear || !semester) {
       setSubjects([]);
-      setSubject(''); // Reset subject filter if semester changes or year is not set
+      setSubject('');
       return;
     }
-    apiRequest(`/subject?year=${studentYear}&semester=${semester}`)
+    const backendYear = yearMap[studentYear] || studentYear;
+    const backendSemester = semesterMapToBackend[semester] || semester;
+    apiRequest(`/subject?year=${backendYear}&semester=${backendSemester === 'sem1' ? '1' : '2'}`)
       .then(data => {
         setSubjects(data);
-        // If current subject is not in new list, reset subject filter
         if (!data.some(s => s.name === subject)) setSubject('');
       })
       .catch(() => setSubjects([]));
@@ -59,6 +72,7 @@ export default function StudentMarks() {
   useEffect(() => {
     let f = marks;
     if (semester) f = f.filter(m => m.semester === semester);
+    // Only filter by subject if a specific subject is selected (not empty string)
     if (subject) f = f.filter(m => m.subject === subject);
     if (assessmentType) f = f.filter(m => m.assessmentType === assessmentType);
     setFiltered(f);
@@ -78,12 +92,14 @@ export default function StudentMarks() {
           value={semester}
           onChange={e => {
             setSemester(e.target.value);
-            setSubject(''); // Reset subject filter when semester changes
+            setSubject('');
           }}
           className="border rounded px-3 py-1"
         >
           <option value="">Select Semester</option>
-          {semesters.map(s => <option key={s} value={s}>{s}</option>)}
+          {SEMESTER_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
         </select>
         <select
           value={subject}

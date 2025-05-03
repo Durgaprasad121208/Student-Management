@@ -70,7 +70,9 @@ exports.getQuizzes = async (req, res) => {
 // Student: Submit quiz attempt
 exports.submitQuiz = async (req, res) => {
   try {
-    const { quizId, answers } = req.body;
+    // Accept quizId from either body or URL param
+    const quizId = req.body.quizId || req.params.id;
+    const { answers } = req.body;
     const quiz = await Quiz.findById(quizId);
     if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
     // Evaluate score
@@ -83,7 +85,7 @@ exports.submitQuiz = async (req, res) => {
     });
     const attempt = new QuizAttempt({
       quizId,
-      studentId: req.user.id,
+      studentId: req.user.studentId || req.user.id,
       answers,
       score,
       evaluated: true
@@ -118,12 +120,66 @@ exports.getAvailableQuizzes = async (req, res) => {
     if (!student) return res.status(404).json({ message: 'Student profile not found' });
     const filter = {
       section: student.section,
-      year: student.year,
-      semester: student.semester,
+      year: normalizeYear(student.year),
+      semester: normalizeSemester(student.semester),
       isActive: true
     };
     const quizzes = await Quiz.find(filter);
     res.json(quizzes);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Map student year/semester to Quiz model format
+function normalizeYear(year) {
+  if (typeof year === 'string' && year.startsWith('E-')) return year;
+  if (typeof year === 'string' && year.length === 2 && year.startsWith('E')) return year;
+  if (typeof year === 'string' && year.length === 2 && year[0] === 'E' && year[1] === '-') return 'E-' + year[1];
+  if (typeof year === 'string' && year.length === 2 && year[0] === 'E') return 'E-' + year[1];
+  return year;
+}
+
+function normalizeSemester(sem) {
+  if (sem === 'sem1' || sem === '1') return 'sem1';
+  if (sem === 'sem2' || sem === '2') return 'sem2';
+  return sem;
+}
+
+// Student: Get all quizzes for their section/year/semester/subject with status
+exports.getAllQuizzesWithStatus = async (req, res) => {
+  try {
+    const studentId = req.user.studentId || req.user.id;
+    const student = await Student.findById(studentId);
+    if (!student) return res.status(404).json({ message: 'Student profile not found' });
+
+    // Normalize year/semester to match Quiz model
+    const filter = {
+      section: student.section,
+      year: normalizeYear(student.year),
+      semester: normalizeSemester(student.semester)
+    };
+    const quizzes = await Quiz.find(filter).lean();
+    // Find all attempts by this student
+    const attempts = await QuizAttempt.find({ studentId }).lean();
+    const attemptMap = {};
+    attempts.forEach(a => { attemptMap[String(a.quizId)] = a; });
+    const now = new Date();
+    const quizzesWithStatus = quizzes.map(q => {
+      const attempt = attemptMap[String(q._id)];
+      let status = 'Available';
+      if (attempt) {
+        status = 'Attempted';
+      } else if (q.deadline && new Date(q.deadline) < now) {
+        status = 'Missed';
+      }
+      return {
+        ...q,
+        status,
+        attempt: attempt || null
+      };
+    });
+    res.json(quizzesWithStatus);
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }

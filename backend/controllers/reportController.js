@@ -371,49 +371,32 @@ exports.generateClassReport = async (req, res) => {
         ];
         sheet.columns = columns;
         for (const row of reportRows) {
-          // Attendance rows
-          if (Array.isArray(row.attendance)) {
-            row.attendance.forEach(a => {
-              sheet.addRow({
-                name: row.name || '-',
-                email: row.email || '-',
-                idNumber: row.idNumber || '-',
-                semester: semester,
-                subject: a.subject || '-',
-                total: a.total || 0,
-                presents: a.presents || 0,
-                attendancePercent: a.percent || '0.00'
-              });
-            });
-          }
-          // Marks rows
-          if (Array.isArray(row.marks)) {
-            row.marks.forEach(m => {
-              sheet.addRow({
-                name: row.name || '-',
-                email: row.email || '-',
-                idNumber: row.idNumber || '-',
-                semester: semester,
-                subject: m.subject || '-',
-                assessmentType: m.assessmentType || '-',
-                marks: `${m.score||0}/${m.maxScore||0}`,
-                percent: m.maxScore > 0 ? ((m.score / m.maxScore) * 100).toFixed(2) : '0.00'
-              });
-            });
-          }
-          // Quiz rows
-          if (Array.isArray(row.quizzes)) {
-            row.quizzes.forEach(q => {
-              sheet.addRow({
-                name: row.name || '-',
-                email: row.email || '-',
-                idNumber: row.idNumber || '-',
-                semester: semester,
-                quizTitle: q.quizTitle || '-',
-                quizSubject: q.subject || '-',
-                quizScore: q.score || 0,
-                quizSubmittedAt: q.submittedAt || '-'
-              });
+          const maxLen = Math.max(
+            row.attendance && Array.isArray(row.attendance) ? row.attendance.length : 0,
+            row.marks && Array.isArray(row.marks) ? row.marks.length : 0,
+            row.quizzes && Array.isArray(row.quizzes) ? row.quizzes.length : 0,
+            1
+          );
+          for (let i = 0; i < maxLen; i++) {
+            const a = row.attendance && row.attendance[i] ? row.attendance[i] : {};
+            const m = row.marks && row.marks[i] ? row.marks[i] : {};
+            const q = row.quizzes && row.quizzes[i] ? row.quizzes[i] : {};
+            sheet.addRow({
+              name: row.name || '-',
+              email: row.email || '-',
+              idNumber: row.idNumber || '-',
+              semester: row.semester || '-',
+              subject: m.subject || a.subject || q.subject || '-',
+              assessmentType: m.assessmentType || '-',
+              marks: m.score !== undefined && m.maxScore !== undefined ? `${m.score}/${m.maxScore}` : '-',
+              percent: m.maxScore > 0 ? ((m.score / m.maxScore) * 100).toFixed(2) : '-',
+              quizTitle: q.quizTitle || '-',
+              quizSubject: q.subject || '-',
+              quizScore: q.score || '-',
+              quizSubmittedAt: q.submittedAt || '-',
+              total: a.total || '-',
+              presents: a.presents || '-',
+              attendancePercent: a.percent || '-'
             });
           }
         }

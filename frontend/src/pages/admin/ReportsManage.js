@@ -24,12 +24,16 @@ export default function ReportsManage() {
     classSection: '',
     classYear: '',
     classSemester: '',
+    classFormat: 'xlsx',
+    classReportType: 'All',
     // For individual
     studentId: '',
     indYear: '',
     indSection: '',
     indSemester: '',
     indSearch: '',
+    indFormat: 'xlsx',
+    indReportType: 'All',
   });
   const [generating, setGenerating] = useState(false);
 
@@ -144,7 +148,7 @@ export default function ReportsManage() {
   // Handle form change
   const handleFormChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
-  // Generate report (calls backend PDF generator)
+  // Generate report (single request for generate + download)
   const handleGenerate = async e => {
     e.preventDefault();
     setGenerating(true);
@@ -153,47 +157,34 @@ export default function ReportsManage() {
     try {
       if (form.reportMode === 'individual') {
         if (!form.studentId || !form.indSemester) throw new Error('Select student and semester');
-        // Use POST to generate & save the report, then GET to download
-        const params = `studentId=${form.studentId}&semester=${form.indSemester}&reportType=${form.indReportType}`;
+        const params = `studentId=${form.studentId}&semester=${form.indSemester}&reportType=${form.indReportType}&format=${form.indFormat}`;
         const token = localStorage.getItem('token');
-        // 1. Generate and save report (POST)
-        const genRes = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/student?${params}`, {
-          method: 'POST',
+        // Single GET request for generate + download
+        const res = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/student/${form.studentId}?semester=${form.indSemester}&reportType=${form.indReportType}&format=${form.indFormat}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (!genRes.ok) throw new Error('Failed to generate report');
-        // 2. Download report (GET)
-        const dlRes = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/student/${form.studentId}?semester=${form.indSemester}&reportType=${form.indReportType}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const blob = await dlRes.blob();
+        if (!res.ok) throw new Error('Failed to generate/download report');
+        const blob = await res.blob();
         const link = document.createElement('a');
         link.href = window.URL.createObjectURL(blob);
-        link.download = `student_report_${form.studentId}_${form.indSemester}.xlsx`;
+        link.download = `student_report_${form.studentId}_${form.indSemester}.${form.indFormat}`;
         link.click();
-        setMsg('Report generated, saved, and downloaded!');
+        setMsg('Report generated and downloaded!');
         fetchReports();
       } else {
         if (!form.classSection || !form.classYear || !form.classSemester) throw new Error('Select section, year, and semester');
-        // Use POST to generate & save the report, then GET to download
-        const params = `section=${form.classSection}&year=${form.classYear}&semester=${form.classSemester}&format=xlsx&reportType=${form.classReportType}`;
+        const params = `section=${form.classSection}&year=${form.classYear}&semester=${form.classSemester}&format=${form.classFormat}&reportType=${form.classReportType}`;
         const token = localStorage.getItem('token');
-        // 1. Generate and save report (POST)
-        const genRes = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/class?${params}`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (!genRes.ok) throw new Error('Failed to generate class report');
-        // 2. Download report (GET)
-        const dlRes = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/class?${params}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const blob = await dlRes.blob();
+        // Single GET request for generate + download
+        const url = `${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/class?${params}`;
+        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) throw new Error('Failed to generate/download class report');
+        const blob = await res.blob();
         const link = document.createElement('a');
         link.href = window.URL.createObjectURL(blob);
-        link.download = `class_report_${form.classSection}_${form.classYear}_${form.classSemester}.xlsx`;
+        link.download = `class_report_${form.classSection}_${form.classYear}_${form.classSemester}.${form.classFormat}`;
         link.click();
-        setMsg('Class-wise report generated, saved, and downloaded!');
+        setMsg('Class-wise report downloaded!');
         fetchReports();
       }
     } catch (err) {
@@ -270,6 +261,18 @@ export default function ReportsManage() {
                 <option value="Marks">Marks</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-semibold mb-1">Format</label>
+              <select
+                name="classFormat"
+                value={form.classFormat || 'xlsx'}
+                onChange={e => setForm(f => ({ ...f, classFormat: e.target.value }))}
+                className="p-2 border rounded w-32"
+              >
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="csv">CSV (.csv)</option>
+              </select>
+            </div>
             <button
               type="button"
               className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600 disabled:opacity-60 flex items-center gap-2"
@@ -279,7 +282,7 @@ export default function ReportsManage() {
                 setMsg('');
                 setError('');
                 try {
-                  const params = `section=${form.classSection}&year=${form.classYear}&semester=${form.classSemester}&format=xlsx&reportType=${form.classReportType || 'Performance'}`;
+                  const params = `section=${form.classSection}&year=${form.classYear}&semester=${form.classSemester}&format=${form.classFormat}&reportType=${form.classReportType || 'Performance'}`;
                   const url = `${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/class?${params}`;
                   const token = localStorage.getItem('token');
                   const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -287,9 +290,9 @@ export default function ReportsManage() {
                   const blob = await res.blob();
                   const link = document.createElement('a');
                   link.href = window.URL.createObjectURL(blob);
-                  link.download = `class_report_${form.classSection}_${form.classYear}_${form.classSemester}.xlsx`;
+                  link.download = `class_report_${form.classSection}_${form.classYear}_${form.classSemester}.${form.classFormat}`;
                   link.click();
-                  setMsg('Class-wise Excel report downloaded!');
+                  setMsg('Class-wise report downloaded!');
                 } catch (err) {
                   setError(err.message || 'Failed to download class report');
                 } finally {
@@ -298,7 +301,7 @@ export default function ReportsManage() {
               }}
             >
               <ExcelIcon className="inline w-5 h-5 align-text-bottom" />
-              Download Class Excel
+              Download Class Report
             </button>
           </div>
         ) : (
@@ -336,6 +339,18 @@ export default function ReportsManage() {
                 <option value="">Semester</option>
                 <option value="sem1">Sem 1</option>
                 <option value="sem2">Sem 2</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold mb-1">Format</label>
+              <select
+                name="indFormat"
+                value={form.indFormat || 'xlsx'}
+                onChange={e => setForm(f => ({ ...f, indFormat: e.target.value }))}
+                className="p-2 border rounded w-32"
+              >
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="csv">CSV (.csv)</option>
               </select>
             </div>
             <div>
