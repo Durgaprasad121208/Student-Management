@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
+import { TrashIcon } from './_Icon';
 
 export default function NotificationsManage() {
   const [notifications, setNotifications] = useState([]);
@@ -43,14 +44,25 @@ export default function NotificationsManage() {
     setError('');
     try {
       const body = { ...form };
+      // Only send year/section if needed, otherwise remove
       if (form.target !== 'year') body.year = '';
       if (form.target !== 'section') body.section = '';
+      // --- Fix: ensure target is set correctly ---
+      if (form.target === 'section' && (!form.year || !form.section)) {
+        setError('Please select both year and section for section notification.');
+        return;
+      }
+      if (form.target === 'year' && !form.year) {
+        setError('Please select year for year notification.');
+        return;
+      }
+      // If target is section, keep target as 'section' (do not default to 'all')
       await apiRequest('/notification', {
         method: 'POST',
         body: JSON.stringify(body)
       });
       setMsg('Notification sent!');
-      setForm({ message: '', type: 'info', target: 'all' });
+      setForm({ message: '', type: 'info', target: 'all', year: '', section: '' });
       fetchNotifications();
     } catch (err) {
       setError(err.message);
@@ -117,8 +129,8 @@ export default function NotificationsManage() {
                   <td className="p-2">{n.target || 'all'}{n.section ? ` (${n.section === '' ? 'All Sections' : n.section})` : ''}{n.year ? ` (${n.year})` : ''}</td>
                   <td className="p-2">{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</td>
                   <td className="p-2 text-center">
-                    <button title="Delete" className="text-red-600 hover:text-red-800 mx-1 text-lg align-middle" onClick={() => handleDelete(n._id)}>
-                      🗑️
+                    <button title="Delete" className="text-red-600 hover:text-red-800 mx-1 align-middle" onClick={() => handleDelete(n._id)}>
+                      <TrashIcon className="inline-block align-middle" />
                     </button>
                   </td>
                 </tr>

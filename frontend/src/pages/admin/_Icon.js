@@ -1,10 +1,11 @@
 import React from 'react';
 
 export function EyeIcon({className = ''}) {
+  // Simple minimalist eye outline icon
   return (
     <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5c-7 0-9 7.5-9 7.5s2 7.5 9 7.5 9-7.5 9-7.5-2-7.5-9-7.5zm0 13a5.5 5.5 0 110-11 5.5 5.5 0 010 11z" />
-      <circle cx="12" cy="12" r="2.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z" />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth={2} fill="none" />
     </svg>
   );
 }
@@ -19,9 +20,11 @@ export function EyeOffIcon({className = ''}) {
 }
 
 export function EditIcon({className = ''}) {
+  // Simple minimalist pencil/pen outline icon
   return (
     <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6-6m2 2l-6 6m-2 2h2v2h2v-2h2v-2h-2v-2h-2v2h-2v2z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.5 6.5l1 1a2.121 2.121 0 010 3l-8.5 8.5a2 2 0 01-.88.52l-3 1a.5.5 0 01-.63-.63l1-3a2 2 0 01.52-.88l8.5-8.5a2.121 2.121 0 013 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 8l1 1" />
     </svg>
   );
 }

@@ -76,6 +76,31 @@ exports.getNotifications = async (req, res) => {
   }
 };
 
+// Get notifications for a specific student (admin or student access)
+exports.getNotificationsForStudent = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    // Only allow admin or the student themselves
+    if (req.user.role === 'student' && req.user.studentId !== studentId && req.user.id !== studentId) {
+      return res.status(403).json({ message: 'Forbidden: cannot access another student\'s notifications' });
+    }
+    // Find the student's section
+    const student = await require('../models/Student').findById(studentId);
+    if (!student) return res.status(404).json({ message: 'Student not found' });
+    // Notifications for this student: direct, section, or all
+    const notifications = await Notification.find({
+      $or: [
+        { userId: student.userId },
+        { target: 'all' },
+        { target: 'section', section: student.section }
+      ]
+    }).sort({ createdAt: -1 });
+    res.json(notifications);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 // Create/send a notification
 const Student = require('../models/Student');
 exports.createNotification = async (req, res) => {
@@ -83,27 +108,33 @@ exports.createNotification = async (req, res) => {
     const { message, type = 'info', target = 'all', year = '', section = '' } = req.body;
     let notifications = [];
     if (target === 'year' && year) {
-      // Send to all students in the specified year
       const students = await Student.find({ year });
+      if (!students.length) {
+        return res.status(400).json({ message: `No students found for year ${year}` });
+      }
       notifications = await Promise.all(students.map(student => {
+        if (!student.userId) throw new Error(`Student ${student._id} missing userId`);
         const notif = new Notification({ message, type, target, year, userId: student.userId });
         return notif.save();
       }));
     } else if (target === 'section' && year && section) {
-      // Send to all students in the specified section and year
       const students = await Student.find({ year, section });
+      if (!students.length) {
+        return res.status(400).json({ message: `No students found for section ${section} and year ${year}` });
+      }
       notifications = await Promise.all(students.map(student => {
+        if (!student.userId) throw new Error(`Student ${student._id} missing userId`);
         const notif = new Notification({ message, type, target, year, section, userId: student.userId });
         return notif.save();
       }));
     } else {
-      // Broadcast to all
       const notification = new Notification({ message, type, target: 'all' });
       await notification.save();
       notifications = [notification];
     }
     res.status(201).json({ message: 'Notification(s) sent', count: notifications.length });
   } catch (err) {
+    console.error('Notification error:', err); 
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };

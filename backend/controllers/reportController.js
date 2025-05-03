@@ -4,84 +4,29 @@ const Marks = require('../models/Marks');
 const Attendance = require('../models/Attendance');
 const PDFDocument = require('pdfkit');
 
+// Add a helper to extract studentId from either params or query for admin or student
+function extractStudentId(req) {
+  return req.params.studentId || req.query.studentId;
+}
+
 // Generate a report for a student (PDF, CSV, or XLSX)
 exports.generateStudentReport = async (req, res) => {
   try {
-    const { studentId, semester } = req.query;
+    const { semester, reportType = 'Performance' } = req.query;
+    const studentId = extractStudentId(req);
     const student = await Student.findById(studentId).populate('userId');
+    if (!student) return res.status(404).json({ message: 'Student not found' });
     const marks = await Marks.find({ studentId, semester });
     const attendance = await Attendance.find({ studentId, semester });
     // Calculate attendance summary
     const presents = attendance.filter(a => a.status === 'Present').length;
     const total = attendance.length;
     const attendancePct = total > 0 ? (presents / total) * 100 : 0;
-    // Create PDF
-    // Handle format=xlsx (Excel)
-    if (req.query.format === 'xlsx') {
-      const ExcelJS = require('exceljs');
-      const workbook = new ExcelJS.Workbook();
-      const sheet = workbook.addWorksheet('Student Report');
-      sheet.columns = [
-        { header: 'Field', key: 'field', width: 24 },
-        { header: 'Value', key: 'value', width: 48 }
-      ];
-      sheet.addRow({ field: 'Name', value: student.userId.name });
-      sheet.addRow({ field: 'Email', value: student.userId.email });
-      sheet.addRow({ field: 'Section', value: student.section });
-      sheet.addRow({ field: 'Year', value: student.year });
-      sheet.addRow({ field: 'Semester', value: semester });
-      sheet.addRow({ field: 'Attendance', value: `${presents}/${total} (${attendancePct.toFixed(2)}%)` });
-      sheet.addRow({ field: 'Marks', value: marks.map(m => `${m.subject} (${m.assessmentType}): ${m.score}/${m.maxScore}`).join('; ') });
-      // Quiz results
-      sheet.addRow({ field: 'Quizzes', value: quizData.filter(q => q).map(q => `${q.quizTitle}: ${q.score}`).join('; ') });
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename=student_report_${studentId}_${semester}.xlsx`);
-      await workbook.xlsx.write(res);
-      return res.end();
-    }
-    // Handle format=csv
-    if (req.query.format === 'csv') {
-      let csv = '\uFEFFField,Value\n';
-      csv += `Name,"${student.userId.name}"\n`;
-      csv += `Email,"${student.userId.email}"\n`;
-      csv += `Section,"${student.section}"\n`;
-      csv += `Year,"${student.year}"\n`;
-      csv += `Semester,"${semester}"\n`;
-      csv += `Attendance,"${presents}/${total} (${attendancePct.toFixed(2)}%)"\n`;
-      csv += `Marks,"${marks.map(m => `${m.subject} (${m.assessmentType}): ${m.score}/${m.maxScore}`).join('; ')}"\n`;
-      csv += `Quizzes,"${quizData.filter(q => q).map(q => `${q.quizTitle}: ${q.score}`).join('; ')}"\n`;
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename=student_report_${studentId}_${semester}.csv`);
-      return res.send(csv);
-    }
-    // Default: PDF
-    const doc = new PDFDocument();
-    let buffers = [];
-    doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => {
-      let pdfData = Buffer.concat(buffers);
-      res.setHeader('Content-Type', 'application/pdf');
-      res.send(pdfData);
-    });
-    doc.text(`Student Report for ${student.userId.name} (${student.userId.email})`);
-    doc.text(`Section: ${student.section}, Year: ${student.year}, Semester: ${semester}`);
-    doc.text(`Attendance: ${presents}/${total} (${attendancePct.toFixed(2)}%)`);
-    doc.text('Marks:');
-    marks.forEach(m => {
-      doc.text(`${m.subject} (${m.assessmentType}): ${m.score}/${m.maxScore}`);
-    });
-    // Save a summary report to the database (before PDF generation)
+    // Quiz
     const QuizAttempt = require('../models/QuizAttempt');
     const Quiz = require('../models/Quiz');
-
-    // Fetch quiz attempts for this student and semester
     let quizAttempts = [];
-    try {
-      quizAttempts = await QuizAttempt.find({ studentId: student._id });
-    } catch (e) {
-      quizAttempts = [];
-    }
-    // Fetch quiz info for each attempt
+    try { quizAttempts = await QuizAttempt.find({ studentId }); } catch { quizAttempts = []; }
     let quizData = [];
     try {
       quizData = await Promise.all(
@@ -96,36 +41,166 @@ exports.generateStudentReport = async (req, res) => {
               score: attempt.score,
               submittedAt: attempt.submittedAt
             };
-          } catch (err) {
-            return null;
-          }
+          } catch { return null; }
         })
       );
-    } catch (e) {
-      quizData = [];
+    } catch { quizData = []; }
+
+    // --- Attendance Table ---
+    function getAttendanceTable(attendance) {
+      if (!attendance || attendance.length === 0) return [];
+      const bySubject = {};
+      attendance.forEach(a => {
+        // Defensive: skip if subject is missing
+        if (!a.subject) return;
+        if (!bySubject[a.subject]) bySubject[a.subject] = { total: 0, presents: 0 };
+        bySubject[a.subject].total++;
+        if (a.status === 'Present') bySubject[a.subject].presents++;
+      });
+      return Object.entries(bySubject).map(([subject, data]) => ({
+        subject,
+        total: data.total,
+        presents: data.presents,
+        percent: data.total > 0 ? ((data.presents / data.total) * 100).toFixed(2) : '0.00'
+      }));
     }
-    // Handle empty marks, attendance, quizzes gracefully
-    const attendanceSummary = { presents, total, percent: attendancePct };
-    const marksSummary = Array.isArray(marks) && marks.length > 0 ? marks.map(m => ({
-      subject: m.subject,
-      assessmentType: m.assessmentType,
-      score: m.score,
-      maxScore: m.maxScore
-    })) : [{ subject: null, assessmentType: null, score: 0, maxScore: 0 }];
-    const quizzesSummary = quizData && quizData.filter(q => q).length > 0 ? quizData.filter(q => q) : [{ quizTitle: null, subject: null, score: 0, submittedAt: null }];
+    // --- Marks Table ---
+    function getMarksTable(marks) {
+      return marks.map(m => ({
+        subject: m.subject,
+        assessmentType: m.assessmentType,
+        assignmentName: m.assignmentName || '-',
+        maxScore: m.maxScore,
+        score: m.score,
+        percent: m.maxScore > 0 ? ((m.score / m.maxScore) * 100).toFixed(2) : '0.00'
+      }));
+    }
+    // --- Quiz Table ---
+    function getQuizTable(quizData) {
+      return quizData.filter(q => q).map(q => ({
+        quizTitle: q.quizTitle,
+        subject: q.subject,
+        score: q.score,
+        submittedAt: q.submittedAt ? new Date(q.submittedAt).toLocaleString() : '-'
+      }));
+    }
+    const attendanceTable = getAttendanceTable(attendance);
+    const marksTable = getMarksTable(marks);
+    const quizTable = getQuizTable(quizData);
+
+    // Save report in DB with all student details
     await Report.create({
       studentId: student._id,
-      type: 'performance',
+      type: reportType,
       data: {
-        attendance: attendanceSummary,
-        marks: marksSummary,
-        quizzes: quizzesSummary
+        name: student.userId.name,
+        email: student.userId.email,
+        idNumber: student.idNumber, 
+        section: student.section,
+        year: student.year,
+        semester: semester,
+        attendance: attendanceTable,
+        marks: marksTable,
+        quizzes: quizTable
       },
       generatedBy: req.user ? req.user._id : null
     });
 
-    doc.end();
-    return;
+    // --- Excel ---
+    if (req.query.format === 'xlsx') {
+      const ExcelJS = require('exceljs');
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Student Report');
+      // Student Info
+      sheet.addRow(['Name', student.userId.name]);
+      sheet.addRow(['Email', student.userId.email]);
+      sheet.addRow(['ID Number', student.idNumber]);
+      sheet.addRow(['Section', student.section]);
+      sheet.addRow(['Year', student.year]);
+      sheet.addRow(['Semester', semester]);
+      sheet.addRow([]);
+      if (reportType === 'Attendance') {
+        sheet.addRow(['Attendance Report']);
+        sheet.addRow(['Subject', 'Total Classes', 'Presents', 'Attendance %']);
+        if (attendanceTable.length === 0) {
+          sheet.addRow(['No attendance records found', '-', '-', '-']);
+        } else {
+          attendanceTable.forEach(r => sheet.addRow([r.subject, r.total, r.presents, r.percent]));
+        }
+        sheet.addRow([]);
+      }
+      if (reportType === 'Marks') {
+        sheet.addRow(['Marks Report']);
+        sheet.addRow(['Subject', 'Assessment Type', 'Assignment Name', 'Max Marks', 'Marks Gained', 'Marks %']);
+        marksTable.forEach(r => sheet.addRow([r.subject, r.assessmentType, r.assignmentName, r.maxScore, r.score, r.percent]));
+        if (marksTable.length === 0) {
+          sheet.addRow(['-', '-', '-', '-', '-', '-']);
+        }
+        sheet.addRow([]);
+      }
+      if (reportType === 'Performance' || reportType === 'Quiz' || reportType === 'All') {
+        sheet.addRow(['Quiz Report']);
+        sheet.addRow(['Quiz Title', 'Subject', 'Score', 'Submitted At']);
+        quizTable.forEach(r => sheet.addRow([r.quizTitle, r.subject, r.score, r.submittedAt]));
+        if (quizTable.length === 0) {
+          sheet.addRow(['-', '-', '-', '-']);
+        }
+        sheet.addRow([]);
+      }
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=student_report_${studentId}_${semester}.xlsx`);
+      await workbook.xlsx.write(res);
+      return res.end();
+    }
+    // --- CSV ---
+    if (req.query.format === 'csv') {
+      let csv = '';
+      csv += `Name,"${student.userId.name}"
+`;
+      csv += `Email,"${student.userId.email}"
+`;
+      csv += `ID Number,"${student.idNumber}"
+`;
+      csv += `Section,"${student.section}"
+`;
+      csv += `Year,"${student.year}"
+`;
+      csv += `Semester,"${semester}"
+
+`;
+      if (reportType === 'Attendance') {
+        csv += 'Attendance Report\nSubject,Total Classes,Presents,Attendance %\n';
+        if (attendanceTable.length === 0) {
+          csv += 'No attendance records found,-,-,-\n';
+        } else {
+          attendanceTable.forEach(r => csv += `${r.subject},${r.total},${r.presents},${r.percent}\n`);
+        }
+        csv += '\n';
+      }
+      if (reportType === 'Marks') {
+        csv += 'Marks Report\nSubject,Assessment Type,Assignment Name,Max Marks,Marks Gained,Marks %\n';
+        if (marksTable.length === 0) {
+          csv += '-,-,-,-,-,-\n';
+        } else {
+          marksTable.forEach(r => csv += `${r.subject},${r.assessmentType},${r.assignmentName},${r.maxScore},${r.score},${r.percent}\n`);
+        }
+        csv += '\n';
+      }
+      if (reportType === 'Performance' || reportType === 'Quiz' || reportType === 'All') {
+        csv += 'Quiz Report\nQuiz Title,Subject,Score,Submitted At\n';
+        if (quizTable.length === 0) {
+          csv += '-,-,-,-\n';
+        } else {
+          quizTable.forEach(r => csv += `${r.quizTitle},${r.subject},${r.score},${r.submittedAt}\n`);
+        }
+        csv += '\n';
+      }
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename=student_report_${studentId}_${semester}.csv`);
+      return res.send('\uFEFF'+csv);
+    }
+    // PDF feature removed
+    return res.status(400).json({ message: 'PDF format is not supported. Please use Excel or CSV.' });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -134,7 +209,7 @@ exports.generateStudentReport = async (req, res) => {
 // Generate a class-wise report for a section/year/semester
 exports.generateClassReport = async (req, res) => {
   try {
-    const { section, year, semester, format = 'pdf' } = req.query;
+    const { section, year, semester, format = 'xlsx' } = req.query;
     if (!section || !year || !semester) {
       return res.status(400).json({ message: 'Missing section, year, or semester' });
     }
@@ -143,7 +218,7 @@ exports.generateClassReport = async (req, res) => {
     const Attendance = require('../models/Attendance');
     const QuizAttempt = require('../models/QuizAttempt');
     const Quiz = require('../models/Quiz');
-    const students = await Student.find({ section, year });
+    const students = await Student.find({ section, year }).populate('userId');
     let reportRows = [];
     for (const student of students) {
       const marks = await Marks.find({ studentId: student._id, semester });
@@ -175,6 +250,10 @@ exports.generateClassReport = async (req, res) => {
         studentId: student._id,
         name: student.userId?.name || '',
         email: student.userId?.email || '',
+        idNumber: student.idNumber || '-', 
+        section: student.section,
+        year: student.year,
+        semester: semester,
         attendance: { presents, total, percent: attendancePct },
         marks: marks.length > 0 ? marks.map(m => ({
           subject: m.subject,
@@ -191,16 +270,20 @@ exports.generateClassReport = async (req, res) => {
         studentId: null,
         name: null,
         email: null,
+        idNumber: null,
+        section: null,
+        year: null,
+        semester: semester,
         attendance: { presents: 0, total: 0, percent: 0 },
         marks: [{ subject: null, assessmentType: null, score: 0, maxScore: 0 }],
         quizzes: [{ quizTitle: null, subject: null, score: 0, submittedAt: null }]
       });
     }
+    // Determine report type based on query or default to 'All'
+    let reportType = req.query.reportType;
+    if (!['Attendance','Marks','Performance','All'].includes(reportType)) reportType = 'All';
     // Save class report summary in DB
     const Report = require('../models/Report');
-    // Determine report type based on query or default to 'Performance'
-    let reportType = req.query.reportType;
-    if (!['Attendance','Marks','Performance'].includes(reportType)) reportType = 'Performance';
     await Report.create({
       type: reportType,
       data: { section, year, semester, students: reportRows },
@@ -212,21 +295,128 @@ exports.generateClassReport = async (req, res) => {
       const ExcelJS = require('exceljs');
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet('Class Report');
-      sheet.columns = [
-        { header: 'Name', key: 'name', width: 24 },
-        { header: 'Email', key: 'email', width: 32 },
-        { header: 'Attendance', key: 'attendance', width: 18 },
-        { header: 'Marks', key: 'marks', width: 36 },
-        { header: 'Quizzes', key: 'quizzes', width: 36 }
-      ];
-      for (const row of reportRows) {
-        sheet.addRow({
-          name: row.name || '',
-          email: row.email || '',
-          attendance: `${row.attendance.presents}/${row.attendance.total} (${row.attendance.percent.toFixed(2)}%)`,
-          marks: (row.marks || []).map(m => `${m.subject||''}:${m.score||0}/${m.maxScore||0}`).join('; '),
-          quizzes: (row.quizzes || []).map(q => `${q.quizTitle||''}:${q.score||0}`).join('; ')
-        });
+      // Build columns based on reportType
+      let columns = [];
+      if (reportType === 'Marks') {
+        columns = [
+          { header: 'Name', key: 'name', width: 24 },
+          { header: 'Email', key: 'email', width: 32 },
+          { header: 'ID Number', key: 'idNumber', width: 16 },
+          { header: 'Subject', key: 'subject', width: 18 },
+          { header: 'Assessment Type', key: 'assessmentType', width: 18 },
+          { header: 'Marks (Gained/Max)', key: 'marks', width: 18 },
+          { header: 'Marks %', key: 'percent', width: 12 }
+        ];
+        sheet.columns = columns;
+        for (const row of reportRows) {
+          if (Array.isArray(row.marks)) {
+            row.marks.forEach(m => {
+              sheet.addRow({
+                name: row.name || '-',
+                email: row.email || '-',
+                idNumber: row.idNumber || '-',
+                subject: m.subject || '-',
+                assessmentType: m.assessmentType || '-',
+                marks: `${m.score||0}/${m.maxScore||0}`,
+                percent: m.maxScore > 0 ? ((m.score / m.maxScore) * 100).toFixed(2) : '0.00'
+              });
+            });
+          }
+        }
+      } else if (reportType === 'Attendance') {
+        columns = [
+          { header: 'Name', key: 'name', width: 24 },
+          { header: 'Email', key: 'email', width: 32 },
+          { header: 'ID Number', key: 'idNumber', width: 16 },
+          { header: 'Semester', key: 'semester', width: 12 },
+          { header: 'Subject', key: 'subject', width: 18 },
+          { header: 'Classes Conducted', key: 'total', width: 16 },
+          { header: 'Classes Attended', key: 'presents', width: 16 },
+          { header: 'Attendance %', key: 'percent', width: 12 }
+        ];
+        sheet.columns = columns;
+        for (const row of reportRows) {
+          if (Array.isArray(row.attendance)) {
+            row.attendance.forEach(a => {
+              sheet.addRow({
+                name: row.name || '-',
+                email: row.email || '-',
+                idNumber: row.idNumber || '-',
+                semester: semester,
+                subject: a.subject || '-',
+                total: a.total || 0,
+                presents: a.presents || 0,
+                percent: a.percent || '0.00'
+              });
+            });
+          }
+        }
+      } else { // Performance/All
+        columns = [
+          { header: 'Name', key: 'name', width: 24 },
+          { header: 'Email', key: 'email', width: 32 },
+          { header: 'ID Number', key: 'idNumber', width: 16 },
+          { header: 'Semester', key: 'semester', width: 12 },
+          { header: 'Subject', key: 'subject', width: 18 },
+          { header: 'Assessment Type', key: 'assessmentType', width: 18 },
+          { header: 'Marks (Gained/Max)', key: 'marks', width: 18 },
+          { header: 'Marks %', key: 'percent', width: 12 },
+          { header: 'Quiz Title', key: 'quizTitle', width: 18 },
+          { header: 'Quiz Subject', key: 'quizSubject', width: 18 },
+          { header: 'Quiz Score', key: 'quizScore', width: 12 },
+          { header: 'Quiz Submitted At', key: 'quizSubmittedAt', width: 22 },
+          { header: 'Classes Conducted', key: 'total', width: 16 },
+          { header: 'Classes Attended', key: 'presents', width: 16 },
+          { header: 'Attendance %', key: 'attendancePercent', width: 12 }
+        ];
+        sheet.columns = columns;
+        for (const row of reportRows) {
+          // Attendance rows
+          if (Array.isArray(row.attendance)) {
+            row.attendance.forEach(a => {
+              sheet.addRow({
+                name: row.name || '-',
+                email: row.email || '-',
+                idNumber: row.idNumber || '-',
+                semester: semester,
+                subject: a.subject || '-',
+                total: a.total || 0,
+                presents: a.presents || 0,
+                attendancePercent: a.percent || '0.00'
+              });
+            });
+          }
+          // Marks rows
+          if (Array.isArray(row.marks)) {
+            row.marks.forEach(m => {
+              sheet.addRow({
+                name: row.name || '-',
+                email: row.email || '-',
+                idNumber: row.idNumber || '-',
+                semester: semester,
+                subject: m.subject || '-',
+                assessmentType: m.assessmentType || '-',
+                marks: `${m.score||0}/${m.maxScore||0}`,
+                percent: m.maxScore > 0 ? ((m.score / m.maxScore) * 100).toFixed(2) : '0.00'
+              });
+            });
+          }
+          // Quiz rows
+          if (Array.isArray(row.quizzes)) {
+            row.quizzes.forEach(q => {
+              sheet.addRow({
+                name: row.name || '-',
+                email: row.email || '-',
+                idNumber: row.idNumber || '-',
+                semester: semester,
+                quizTitle: q.quizTitle || '-',
+                quizSubject: q.subject || '-',
+                quizScore: q.score || 0,
+                quizSubmittedAt: q.submittedAt || '-'
+              });
+            });
+          }
+        }
       }
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=class_report_${section}_${year}_${semester}.xlsx`);
@@ -237,43 +427,14 @@ exports.generateClassReport = async (req, res) => {
       // CSV logic remains
       let csv = '\uFEFFName,Email,Attendance,Marks,Quizzes\n';
       for (const row of reportRows) {
-        csv += `"${row.name}","${row.email}","${row.attendance.presents}/${row.attendance.total} (${row.attendance.percent.toFixed(2)}%)","${row.marks.map(m => `${m.subject||''}:${m.score||0}/${m.maxScore||0}`).join('; ')}","${row.quizzes.map(q => `${q.quizTitle||''}:${q.score||0}`).join('; ')}"\n`;
+        csv += `"${row.name||''}","${row.email||''}","${row.attendance ? `${row.attendance.presents}/${row.attendance.total} (${row.attendance.percent?.toFixed(2) || 0}%)` : '-'}","${Array.isArray(row.marks) && row.marks.length > 0 && row.marks[0].subject ? row.marks.map(m => `${m.subject||''} (${m.assessmentType||''}): ${m.score||0}/${m.maxScore||0}`).join('; ') : '-'}","${Array.isArray(row.quizzes) && row.quizzes.length > 0 && row.quizzes[0].quizTitle ? row.quizzes.map(q => `${q.quizTitle||''} (${q.subject||''}) - Score: ${q.score||0}${q.submittedAt ? ' at ' + new Date(q.submittedAt).toLocaleString() : ''}`).join('; ') : '-'}"\n`;
       }
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename=class_report_${section}_${year}_${semester}.csv`);
       return res.send(csv);
     } else {
-      // Generate PDF
-      const PDFDocument = require('pdfkit');
-      const doc = new PDFDocument();
-      let buffers = [];
-      doc.on('data', buffers.push.bind(buffers));
-      doc.on('end', () => {
-        let pdfData = Buffer.concat(buffers);
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=class_report_${section}_${year}_${semester}.pdf`);
-        res.send(pdfData);
-      });
-      doc.fontSize(14).text(`Class Report for Section: ${section}, Year: ${year}, Semester: ${semester}`);
-      doc.moveDown();
-      // Table headers
-      doc.fontSize(12).text('Name', {continued:true, width:120});
-      doc.text('Email', {continued:true, width:180});
-      doc.text('Attendance', {continued:true, width:120});
-      doc.text('Marks', {continued:true, width:180});
-      doc.text('Quizzes');
-      doc.moveDown(0.5);
-      doc.moveTo(doc.x, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).stroke();
-      for (const row of reportRows) {
-        doc.moveDown(0.5);
-        doc.fontSize(11).text(`${row.name || ''}`, {continued:true, width:120});
-        doc.text(`${row.email || ''}`, {continued:true, width:180});
-        doc.text(`${row.attendance.presents}/${row.attendance.total} (${row.attendance.percent.toFixed(2)}%)`, {continued:true, width:120});
-        doc.text(`${row.marks.map(m => `${m.subject||''}:${m.score||0}/${m.maxScore||0}`).join('; ')}`, {continued:true, width:180});
-        doc.text(`${row.quizzes.map(q => `${q.quizTitle||''}:${q.score||0}`).join('; ')}`);
-        doc.moveDown(0.25);
-      }
-      doc.end();
+      // PDF feature removed
+      return res.status(400).json({ message: 'PDF format is not supported. Please use Excel or CSV.' });
     }
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -302,6 +463,22 @@ exports.deleteReport = async (req, res) => {
   }
 };
 
+// Bulk delete reports by IDs
+exports.bulkDeleteReports = async (req, res) => {
+  try {
+    console.log('[bulkDeleteReports] req.body:', req.body);
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'No report IDs provided.' });
+    }
+    const result = await Report.deleteMany({ _id: { $in: ids } });
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error('[bulkDeleteReports] Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message, stack: err.stack });
+  }
+};
+
 // Download a report (PDF or CSV)
 exports.downloadReport = async (req, res) => {
   try {
@@ -316,97 +493,120 @@ exports.downloadReport = async (req, res) => {
         // Class report: header
         csv += 'Name,Email,Attendance,Marks,Quizzes\n';
         for (const row of report.data.students) {
-          const attendanceStr = row.attendance ? `${row.attendance.presents}/${row.attendance.total} (${row.attendance.percent?.toFixed(2) || 0}%)` : '';
-          const marksStr = Array.isArray(row.marks) ? row.marks.map(m => `${m.subject||''}:${m.score||0}/${m.maxScore||0}`).join('; ') : '';
-          const quizStr = Array.isArray(row.quizzes) ? row.quizzes.map(q => `${q.quizTitle||''}:${q.score||0}`).join('; ') : '';
+          const attendanceStr = row.attendance ? `${row.attendance.presents}/${row.attendance.total} (${row.attendance.percent?.toFixed(2) || 0}%)` : '-';
+          const marksStr = Array.isArray(row.marks) && row.marks.length > 0 && row.marks[0].subject ? row.marks.map(m => `${m.subject||''} (${m.assessmentType||''}): ${m.score||0}/${m.maxScore||0}`).join('; ') : '-';
+          const quizStr = Array.isArray(row.quizzes) && row.quizzes.length > 0 && row.quizzes[0].quizTitle ? row.quizzes.map(q => `${q.quizTitle||''} (${q.subject||''}) - Score: ${q.score||0}${q.submittedAt ? ' at ' + new Date(q.submittedAt).toLocaleString() : ''}`).join('; ') : '-';
           csv += `"${row.name||''}","${row.email||''}","${attendanceStr}","${marksStr}","${quizStr}"\n`;
         }
       } else {
         // Individual report or unknown: flatten all keys
-        csv += Object.entries(report.data).map(([k, v]) => {
+        const keys = Object.keys(report.data || {});
+        csv += keys.join(',') + '\n';
+        const row = {};
+        for (const k of keys) {
+          let v = report.data[k];
           if (Array.isArray(v)) {
-            return `${k},"${v.map(item => typeof item === 'object' ? JSON.stringify(item) : item).join('; ')}"`;
+            v = v.map(item => typeof item === 'object' ? JSON.stringify(item) : item).join('; ');
           } else if (typeof v === 'object' && v !== null) {
-            return `${k},"${Object.entries(v).map(([kk, vv]) => kk+':'+vv).join('; ')}"`;
-          } else {
-            return `${k},${v}`;
+            v = Object.entries(v).map(([kk, vv]) => kk+':'+vv).join('; ');
           }
-        }).join('\n');
+          row[k] = v;
+        }
+        csv += Object.values(row).map(v => `"${v}"`).join(',') + '\n';
       }
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename=report_${id}.csv`);
       return res.send('\uFEFF'+csv);
     }
-    // Default: PDF
-    const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument();
-    let buffers = [];
-    doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => {
-      let pdfData = Buffer.concat(buffers);
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename=report_${id}.pdf`);
-      res.send(pdfData);
-    });
-    doc.text(`Report Type: ${report.type}`);
-    Object.entries(report.data).forEach(([k, v]) => {
-      doc.text(`${k}: ${v}`);
-    });
-    // Save a summary report to the database (before PDF generation)
-    const QuizAttempt = require('../models/QuizAttempt');
-    const Quiz = require('../models/Quiz');
-
-    // Fetch quiz attempts for this student and semester
-    let quizAttempts = [];
-    try {
-      quizAttempts = await QuizAttempt.find({ studentId: student._id });
-    } catch (e) {
-      quizAttempts = [];
-    }
-    // Fetch quiz info for each attempt
-    let quizData = [];
-    try {
-      quizData = await Promise.all(
-        quizAttempts.map(async (attempt) => {
-          try {
-            const quiz = await Quiz.findById(attempt.quizId);
-            if (!quiz) return null;
-            if (quiz.semester !== semester) return null;
-            return {
-              quizTitle: quiz.title,
-              subject: quiz.subject,
-              score: attempt.score,
-              submittedAt: attempt.submittedAt
-            };
-          } catch (err) {
-            return null;
+    // XLSX (Excel) download support
+    if (format === 'xlsx') {
+      const ExcelJS = require('exceljs');
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Report');
+      if (report.type === 'class' && Array.isArray(report.data.students)) {
+        // CLASS REPORT: One row per student, summarize marks/quizzes/attendance
+        sheet.columns = [
+          { header: 'Name', key: 'name', width: 24 },
+          { header: 'Email', key: 'email', width: 32 },
+          { header: 'ID Number', key: 'idNumber', width: 16 },
+          { header: 'Semester', key: 'semester', width: 12 },
+          { header: 'Subjects', key: 'subjects', width: 18 },
+          { header: 'Marks', key: 'marks', width: 40 },
+          { header: 'Quizzes', key: 'quizzes', width: 40 },
+          { header: 'Attendance', key: 'attendance', width: 24 }
+        ];
+        const semester = report.data.semester || '-';
+        for (const row of report.data.students) {
+          // Summarize subjects
+          let subjects = '-';
+          if (Array.isArray(row.attendance)) {
+            subjects = row.attendance.map(a => a.subject).join('; ');
           }
-        })
-      );
-    } catch (e) {
-      quizData = [];
+          // Summarize marks
+          let marks = '-';
+          if (Array.isArray(row.marks) && row.marks.length > 0) {
+            marks = row.marks.map(m => `${m.subject||''} (${m.assessmentType||''}): ${m.score||0}/${m.maxScore||0}`).join('; ');
+          }
+          // Summarize quizzes
+          let quizzes = '-';
+          if (Array.isArray(row.quizzes) && row.quizzes.length > 0) {
+            quizzes = row.quizzes.map(q => `${q.quizTitle||''} (${q.subject||''}) - Score: ${q.score||0}${q.submittedAt ? ' at ' + new Date(q.submittedAt).toLocaleString() : ''}`).join('; ');
+          }
+          // Summarize attendance
+          let attendance = '-';
+          if (Array.isArray(row.attendance) && row.attendance.length > 0) {
+            attendance = row.attendance.map(a => `${a.subject||''}: ${a.presents||0}/${a.total||0} (${a.percent||'0.00'}%)`).join('; ');
+          }
+          sheet.addRow({
+            name: row.name || '-',
+            email: row.email || '-',
+            idNumber: row.idNumber || '-',
+            semester: semester,
+            subjects: subjects,
+            marks: marks,
+            quizzes: quizzes,
+            attendance: attendance
+          });
+        }
+      } else {
+        // Individual/group report: if students is an array of objects, expand each student as a row
+        const data = report.data || {};
+        if (Array.isArray(data.students) && data.students.length > 0 && typeof data.students[0] === 'object') {
+          // Parent keys (except students)
+          const parentKeys = Object.keys(data).filter(k => k !== 'students');
+          // Student keys (from first student)
+          const studentKeys = Object.keys(data.students[0]);
+          // Sheet columns: parent fields + student fields
+          sheet.columns = [
+            ...parentKeys.map(k => ({ header: k, key: k, width: 20 })),
+            ...studentKeys.map(k => ({ header: k, key: k, width: 20 }))
+          ];
+          // Add a row for each student
+          data.students.forEach(student => {
+            const row = {};
+            parentKeys.forEach(k => row[k] = data[k]);
+            studentKeys.forEach(k => row[k] = student[k]);
+            sheet.addRow(row);
+          });
+        } else {
+          // Fallback: output as table with headings in first row and values in second row
+          const keys = Object.keys(data);
+          sheet.columns = keys.map(k => ({ header: k, key: k, width: 24 }));
+          const row = {};
+          for (const k of keys) {
+            row[k] = formatValue(data[k]);
+          }
+          sheet.addRow(keys);
+          sheet.addRow(Object.values(row));
+        }
+      }
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=report_${id}.xlsx`);
+      await workbook.xlsx.write(res);
+      return res.end();
     }
-    // Handle empty marks, attendance, quizzes gracefully
-    const attendanceSummary = { presents, total, percent: attendancePct };
-    const marksSummary = Array.isArray(marks) && marks.length > 0 ? marks.map(m => ({
-      subject: m.subject,
-      assessmentType: m.assessmentType,
-      score: m.score,
-      maxScore: m.maxScore
-    })) : [{ subject: null, assessmentType: null, score: 0, maxScore: 0 }];
-    const quizzesSummary = quizData && quizData.filter(q => q).length > 0 ? quizData.filter(q => q) : [{ quizTitle: null, subject: null, score: 0, submittedAt: null }];
-    await Report.create({
-      studentId: student._id,
-      type: 'performance',
-      data: {
-        attendance: attendanceSummary,
-        marks: marksSummary,
-        quizzes: quizzesSummary
-      },
-      generatedBy: req.user ? req.user._id : null
-    });
-
-    doc.end();
+    // PDF feature removed
+    return res.status(400).json({ message: 'PDF format is not supported. Please use Excel or CSV.' });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -422,3 +622,20 @@ exports.getMyReports = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
+
+// Helper to format values for export
+function formatValue(val) {
+  if (Array.isArray(val)) {
+    if (val.length > 0 && typeof val[0] === 'object') {
+      // Array of objects
+      return val.map(item => Object.entries(item).map(([kk, vv]) => kk + ':' + vv).join('; ')).join(' | ');
+    } else {
+      // Array of primitives
+      return val.join(', ');
+    }
+  } else if (typeof val === 'object' && val !== null) {
+    return Object.entries(val).map(([kk, vv]) => kk + ':' + vv).join('; ');
+  } else {
+    return val;
+  }
+}

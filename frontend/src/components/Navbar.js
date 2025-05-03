@@ -1,12 +1,37 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { apiRequest } from '../api';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
+  // Fetch pending requests count for admin on mount
+  useEffect(() => {
+    async function fetchPendingRequests() {
+      if (user && user.role === 'admin') {
+        try {
+          const res = await apiRequest('/student-registration/requests');
+          if (typeof window !== 'undefined') {
+            window.__pendingStudentRequests = Array.isArray(res) ? res.length : 0;
+            window.dispatchEvent(new CustomEvent('pending-student-requests-update'));
+          }
+        } catch (e) {
+          if (typeof window !== 'undefined') {
+            window.__pendingStudentRequests = 0;
+            window.dispatchEvent(new CustomEvent('pending-student-requests-update'));
+          }
+        }
+      }
+    }
+    fetchPendingRequests();
+    // Also listen for login/logout changes
+  }, [user]);
+
   const handleLogout = () => {
+    // Show notification BEFORE logout so Toast is still mounted
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Logged out successfully!', type: 'success' } }));
     logout();
     navigate('/');
   };
@@ -42,6 +67,14 @@ export default function Navbar() {
           {/* User Info and Logout */}
           {user && (
             <>
+              {user && user.role === 'admin' && (
+                <>
+                  <Link to="/admin/StudentRequests" className="text-sm px-3 py-1 rounded-full text-blue-700 hover:text-white hover:bg-blue-500 transition-all font-semibold relative">
+                    Student Requests
+                    <PendingStudentRequestsBadge />
+                  </Link>
+                </>
+              )}
               <div className="ml-3 flex items-center gap-2">
                 <div className="w-9 h-9 bg-gradient-to-r from-indigo-200 to-cyan-100 text-indigo-700 rounded-full flex items-center justify-center font-bold uppercase shadow">
                   {user.name ? user.name[0] : '?'}
@@ -73,3 +106,18 @@ const LogoutButton = ({ handleLogout }) => (
     Logout
   </button>
 );
+
+function PendingStudentRequestsBadge() {
+  const [pending, setPending] = React.useState(typeof window !== 'undefined' && window.__pendingStudentRequests || 0);
+  React.useEffect(() => {
+    function update() {
+      setPending(window.__pendingStudentRequests || 0);
+    }
+    window.addEventListener('pending-student-requests-update', update);
+    return () => window.removeEventListener('pending-student-requests-update', update);
+  }, []);
+  if (pending > 0) {
+    return <span className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full text-xs px-2 py-0.5 animate-bounce shadow">{pending}</span>;
+  }
+  return null;
+}

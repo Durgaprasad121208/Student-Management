@@ -9,7 +9,8 @@ const adminLinks = [
   { label: 'Quizzes', to: '/admin/quizzes' },
   { label: 'Subjects', to: '/admin/subjects' },
   { label: 'Reports', to: '/admin/reports' },
-  { label: 'Notifications', to: '/admin/notifications' }
+  { label: 'Notifications', to: '/admin/notifications' },
+  { label: 'Student Requests', to: '/admin/StudentRequests' }
 ];
 
 export default function AdminLayout({ children }) {

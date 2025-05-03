@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
+import { useAuth } from '../../context/AuthContext';
 
 import DashboardCard from './DashboardCards';
 
 export default function StudentDashboard() {
+  const { user } = useAuth();
   const [summary, setSummary] = useState({
     marks: 0,
     attendance: 0,
@@ -16,32 +18,38 @@ export default function StudentDashboard() {
   const [partialError, setPartialError] = useState(false);
 
   useEffect(() => {
+    if (!user || !user._id) return;
     setLoading(true);
     setPartialError(false);
-    Promise.allSettled([
-      apiRequest('/marks/my'),
-      apiRequest('/attendance/my'),
-      apiRequest('/quiz/available'),
-      apiRequest('/report/my'),
-      apiRequest('/notification/my'),
-      apiRequest('/student/my')
-    ]).then(results => {
-      setSummary({
-        marks: results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value.length : 0,
-        attendance: results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value.length : 0,
-        quizzes: results[2].status === 'fulfilled' && Array.isArray(results[2].value) ? results[2].value.length : 0,
-        reports: results[3].status === 'fulfilled' && Array.isArray(results[3].value) ? results[3].value.length : 0,
-        notifications: results[4].status === 'fulfilled' && Array.isArray(results[4].value) ? results[4].value.length : 0,
-      });
-      if (results[5] && results[5].status === 'fulfilled') {
-        const profile = results[5].value;
-        setStudentName(profile.userId?.name || profile.name || 'Student');
-      } else {
-        setStudentName('Student');
-      }
-      if (results.some((r, idx) => idx < 5 && r.status !== 'fulfilled')) setPartialError(true);
-    }).finally(() => setLoading(false));
-  }, []);
+    // Fetch student profile first
+    apiRequest('/student/my').then(student => {
+      if (!student || !student._id) throw new Error('Student profile not found');
+      setStudentName(student.userId?.name || user.name || 'Student');
+      // Now fetch all data using student._id where required
+      Promise.allSettled([
+        apiRequest(`/marks/${student._id}`),
+        apiRequest(`/attendance/${student._id}?semester=sem1`),
+        apiRequest(`/quiz/available/${user._id}`), // quiz endpoint may still expect userId
+        apiRequest(`/report/student/${student._id}?format=xlsx`),
+        apiRequest(`/notification/${student._id}`)
+      ])
+        .then(([marksRes, attendanceRes, quizzesRes, reportsRes, notificationsRes]) => {
+          setSummary({
+            marks: marksRes.status === 'fulfilled' && Array.isArray(marksRes.value) ? marksRes.value.length : 0,
+            attendance: attendanceRes.status === 'fulfilled' && attendanceRes.value && typeof attendanceRes.value.attendanceCount === 'number' ? attendanceRes.value.attendanceCount : 0,
+            quizzes: quizzesRes.status === 'fulfilled' && Array.isArray(quizzesRes.value) ? quizzesRes.value.length : 0,
+            reports: reportsRes.status === 'fulfilled' && Array.isArray(reportsRes.value) ? reportsRes.value.length : 0,
+            notifications: notificationsRes.status === 'fulfilled' && Array.isArray(notificationsRes.value) ? notificationsRes.value.length : 0,
+          });
+          setPartialError([marksRes, attendanceRes, quizzesRes, reportsRes, notificationsRes].some(r => r.status !== 'fulfilled'));
+        })
+        .finally(() => setLoading(false));
+    }).catch(() => {
+      setStudentName(user.name || 'Student');
+      setLoading(false);
+      setPartialError(true);
+    });
+  }, [user]);
 
   return (
     <div className="p-8 max-w-6xl mx-auto">

@@ -1,20 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
+import { useAuth } from '../../context/AuthContext';
 import { FaUserCircle, FaEnvelope, FaPhone, FaIdBadge, FaRegAddressCard, FaHashtag, FaLayerGroup } from 'react-icons/fa';
 
 export default function StudentProfile() {
+  const { user } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Debug: Log user object
+  console.log('StudentProfile: user =', user);
 
   useEffect(() => {
     setLoading(true);
     setError('');
     apiRequest('/student/my')
-      .then(setProfile)
-      .catch(e => setError(e.message))
+      .then(res => {
+        console.log('StudentProfile: API response =', res);
+        setProfile(res);
+      })
+      .catch(e => {
+        console.error('StudentProfile: API error =', e);
+        setError(e.message || 'Unknown error');
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [user]);
 
   // Helper to get initials for avatar
   const getInitials = (name) => {
@@ -28,9 +39,9 @@ export default function StudentProfile() {
     <div className="p-6 sm:p-10 max-w-2xl mx-auto">
       <h2 className="text-3xl font-extrabold mb-6 text-center text-blue-800 drop-shadow">My Profile</h2>
       {loading ? (
-        <div className="text-center text-lg">Loading...</div>
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-3xl shadow-xl p-8 relative text-center text-lg">Loading...</div>
       ) : error ? (
-        <div className="text-red-600 text-center">{error}</div>
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-3xl shadow-xl p-8 relative text-red-600 text-center">{error}</div>
       ) : profile ? (
         <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-3xl shadow-xl p-8 relative">
           <div className="flex flex-col items-center mb-6">
@@ -76,7 +87,7 @@ export default function StudentProfile() {
           </div>
         </div>
       ) : (
-        <div className="text-center text-gray-600">No profile data found.</div>
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-3xl shadow-xl p-8 relative text-center text-gray-600">No profile data found.</div>
       )}
     </div>
   );

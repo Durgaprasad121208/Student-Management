@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
+import { EditIcon, TrashIcon } from './_Icon';
 
 export default function MarksManage() {
   const [students, setStudents] = useState([]);
@@ -16,6 +17,22 @@ export default function MarksManage() {
   const [msg, setMsg] = useState('');
   const [warning, setWarning] = useState('');
 
+  // --- Section Marks Management ---
+  const [filterSection, setFilterSection] = useState('');
+  const [filterYear, setFilterYear] = useState('');
+  const [filterSemester, setFilterSemester] = useState('');
+  const [filterSubject, setFilterSubject] = useState('');
+  const [filterSubjects, setFilterSubjects] = useState([]);
+  const [filterAssessmentType, setFilterAssessmentType] = useState('');
+  const [sectionMarks, setSectionMarks] = useState([]);
+  const [marksLoading, setMarksLoading] = useState(false);
+  const [editRowId, setEditRowId] = useState(null);
+  const [editScore, setEditScore] = useState('');
+  const [editMaxScore, setEditMaxScore] = useState('');
+  const [marksTableError, setMarksTableError] = useState('');
+  const [selectedMarkIds, setSelectedMarkIds] = useState([]);
+  const [allSelected, setAllSelected] = useState(false);
+
   const fetchStudents = async () => {
     setLoading(true);
     setError('');
@@ -24,6 +41,12 @@ export default function MarksManage() {
       if (section) params.push(`section=${section}`);
       if (year) params.push(`year=${year}`);
       const res = await apiRequest(`/student${params.length ? '?' + params.join('&') : ''}`);
+      // Sort students by roll number (ascending)
+      res.sort((a, b) => {
+        const rollA = a.rollNo || '';
+        const rollB = b.rollNo || '';
+        return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+      });
       setStudents(res);
       setMarks(res.reduce((acc, s) => ({ ...acc, [s._id]: '' }), {}));
     } catch (err) {
@@ -47,6 +70,17 @@ export default function MarksManage() {
       setSubjects([]);
     }
   }, [year, semester]);
+
+  useEffect(() => {
+    if (filterYear && filterSemester) {
+      const semesterNum = filterSemester === 'sem1' ? '1' : filterSemester === 'sem2' ? '2' : filterSemester;
+      apiRequest(`/subject?year=${filterYear}&semester=${semesterNum}`)
+        .then(setFilterSubjects)
+        .catch(() => setFilterSubjects([]));
+    } else {
+      setFilterSubjects([]);
+    }
+  }, [filterYear, filterSemester]);
 
   const handleChange = (id, value) => {
     if (maxScore && Number(value) > Number(maxScore)) return; // Prevent over max
@@ -93,6 +127,92 @@ export default function MarksManage() {
     }
   };
 
+  const fetchSectionMarks = async () => {
+    setMarksLoading(true);
+    setSectionMarks([]);
+    setMarksTableError('');
+    try {
+      const params = [];
+      if (filterSection) params.push(`section=${filterSection}`);
+      if (filterYear) params.push(`year=${filterYear}`);
+      if (filterSemester) params.push(`semester=${filterSemester === '1' ? 'sem1' : filterSemester === '2' ? 'sem2' : filterSemester}`);
+      if (filterSubject) params.push(`subject=${encodeURIComponent(filterSubject)}`);
+      if (filterAssessmentType) params.push(`assessmentType=${encodeURIComponent(filterAssessmentType)}`);
+      const res = await apiRequest(`/marks/section/filter${params.length ? '?' + params.join('&') : ''}`);
+      setSectionMarks(res);
+    } catch (err) {
+      setMarksTableError(err.message);
+    } finally {
+      setMarksLoading(false);
+    }
+  };
+
+  const handleEdit = (mark) => {
+    setEditRowId(mark._id);
+    setEditScore(mark.score);
+    setEditMaxScore(mark.maxScore);
+  };
+
+  const handleEditSave = async (mark) => {
+    setMarksTableError('');
+    try {
+      await apiRequest(`/marks/${mark._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ score: editScore, maxScore: editMaxScore })
+      });
+      setEditRowId(null);
+      fetchSectionMarks();
+    } catch (err) {
+      setMarksTableError(err.message);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this mark?')) return;
+    setMarksTableError('');
+    try {
+      await apiRequest(`/marks/${id}`, { method: 'DELETE' });
+      fetchSectionMarks();
+    } catch (err) {
+      setMarksTableError(err.message);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm('Are you sure you want to delete these marks?')) return;
+    setMarksTableError('');
+    try {
+      await Promise.all(selectedMarkIds.map(id => apiRequest(`/marks/${id}`, { method: 'DELETE' })));
+      fetchSectionMarks();
+      setSelectedMarkIds([]);
+    } catch (err) {
+      setMarksTableError(err.message);
+    }
+  };
+
+  const toggleSelectMark = (id) => {
+    if (selectedMarkIds.includes(id)) {
+      setSelectedMarkIds(selectedMarkIds.filter(i => i !== id));
+    } else {
+      setSelectedMarkIds([...selectedMarkIds, id]);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedMarkIds([]);
+    } else {
+      setSelectedMarkIds(sectionMarks.map(mark => mark._id));
+    }
+    setAllSelected(!allSelected);
+  };
+
+  useEffect(() => {
+    if (sectionMarks.length > 0) {
+      setAllSelected(sectionMarks.every(mark => selectedMarkIds.includes(mark._id)));
+    }
+  }, [sectionMarks, selectedMarkIds]);
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <h2 className="text-2xl font-bold mb-4">Marks Management</h2>
@@ -113,7 +233,17 @@ export default function MarksManage() {
           <option value="">{subjects.length === 0 ? 'No subjects available' : 'Subject'}</option>
           {subjects.map(s => <option key={s._id} value={s.name}>{s.name}</option>)}
         </select>
-        <input value={assessmentType} onChange={e => setAssessmentType(e.target.value)} placeholder="Assessment Type (e.g. Midterm, Quiz)" className="p-2 border rounded" required />
+        <select value={assessmentType} onChange={e => setAssessmentType(e.target.value)} className="p-2 border rounded" required>
+          <option value="">Assessment Type</option>
+          <option value="AT 1">AT 1</option>
+          <option value="AT 2">AT 2</option>
+          <option value="AT 3">AT 3</option>
+          <option value="AT 4">AT 4</option>
+          <option value="MID 1">MID 1</option>
+          <option value="MID 2">MID 2</option>
+          <option value="MID 3">MID 3</option>
+          <option value="Others">Others</option>
+        </select>
         <input value={maxScore} onChange={e => setMaxScore(e.target.value)} placeholder="Max Score" className="p-2 border rounded" required type="number" />
       </form>
       {msg && <div className="mb-2 text-green-600 font-semibold bg-green-100 border border-green-400 rounded px-4 py-2 animate-pulse">{msg}</div>}
@@ -155,7 +285,133 @@ export default function MarksManage() {
           section && year && <div>No students found for this section/year.</div>
         )
       )}
+      {/* Section Marks Management UI */}
+      <div className="mt-12 mb-8 p-6 bg-white rounded-lg shadow">
+        <h3 className="text-xl font-bold mb-4">View / Edit / Delete Section Marks</h3>
+        <div className="flex flex-wrap gap-4 mb-4">
+          <select value={filterSection} onChange={e => setFilterSection(e.target.value)} className="p-2 border rounded">
+            <option value="">Section</option>
+            {['CSE-01','CSE-02','CSE-03','CSE-04','CSE-05','CSE-06'].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+          <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="p-2 border rounded">
+            <option value="">Year</option>
+            {['E-1','E-2','E-3','E-4'].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+          <select value={filterSemester} onChange={e => setFilterSemester(e.target.value)} className="p-2 border rounded">
+            <option value="">Sem</option>
+            {['1','2'].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+          <select value={filterSubject} onChange={e => setFilterSubject(e.target.value)} className="p-2 border rounded" disabled={filterSubjects.length === 0}>
+            <option value="">{filterSubjects.length === 0 ? 'No subjects available' : 'Subject'}</option>
+            {filterSubjects.map(s => <option key={s._id} value={s.name}>{s.name}</option>)}
+          </select>
+          <select value={filterAssessmentType} onChange={e => setFilterAssessmentType(e.target.value)} className="p-2 border rounded">
+            <option value="">Assessment Type</option>
+            <option value="AT 1">AT 1</option>
+            <option value="AT 2">AT 2</option>
+            <option value="AT 3">AT 3</option>
+            <option value="AT 4">AT 4</option>
+            <option value="MID 1">MID 1</option>
+            <option value="MID 2">MID 2</option>
+            <option value="MID 3">MID 3</option>
+            <option value="Others">Others</option>
+          </select>
+          <button className="bg-primary text-white px-4 py-2 rounded" onClick={fetchSectionMarks} type="button">Filter</button>
+        </div>
+        {marksTableError && <div className="mb-2 text-red-600">{marksTableError}</div>}
+        {marksLoading ? <div>Loading marks...</div> : (
+          sectionMarks.length > 0 ? (
+            <div>
+              <div className="flex items-center mb-2">
+                <button
+                  className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 mr-2 disabled:opacity-50"
+                  onClick={handleBulkDelete}
+                  disabled={selectedMarkIds.length === 0}
+                >
+                  Delete Selected
+                </button>
+                <span className="text-gray-600 text-sm">{selectedMarkIds.length} selected</span>
+              </div>
+              <table className="w-full border mt-2">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="p-2 text-center">
+                      <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+                    </th>
+                    <th className="p-2 text-center">Student Name</th>
+                    <th className="p-2 text-center">ID Number</th>
+                    <th className="p-2 text-center">Roll No</th>
+                    <th className="p-2 text-center">Subject</th>
+                    <th className="p-2 text-center">Assessment Type</th>
+                    <th className="p-2 text-center">Score</th>
+                    <th className="p-2 text-center">Max Score</th>
+                    <th className="p-2 text-center">Semester</th>
+                    <th className="p-2 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sectionMarks.map(mark => (
+                    <tr key={mark._id} className="border-t">
+                      <td className="p-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedMarkIds.includes(mark._id)}
+                          onChange={() => toggleSelectMark(mark._id)}
+                        />
+                      </td>
+                      <td className="p-2 text-center">{
+                        mark.studentId?.userId?.name ||
+                        mark.studentId?.name ||
+                        mark.studentId?.rollNo ||
+                        mark.studentId?.idNumber ||
+                        '-'
+                      }</td>
+                      <td className="p-2 text-center">{mark.studentId?.idNumber || '-'}</td>
+                      <td className="p-2 text-center">{mark.studentId?.rollNo || '-'}</td>
+                      <td className="p-2 text-center">{mark.subject}</td>
+                      <td className="p-2 text-center">{mark.assessmentType}</td>
+                      <td className="p-2 text-center">
+                        {editRowId === mark._id ? (
+                          <input type="number" className="border rounded p-1 w-20 text-center" value={editScore} onChange={e => setEditScore(e.target.value)} />
+                        ) : mark.score}
+                      </td>
+                      <td className="p-2 text-center">
+                        {editRowId === mark._id ? (
+                          <input type="number" className="border rounded p-1 w-20 text-center" value={editMaxScore} onChange={e => setEditMaxScore(e.target.value)} />
+                        ) : mark.maxScore}
+                      </td>
+                      <td className="p-2 text-center">{mark.semester}</td>
+                      <td className="p-2 text-center flex items-center justify-center gap-2">
+                        {editRowId === mark._id ? (
+                          <>
+                            <button title="Save" className="text-green-600 font-semibold mr-1" onClick={() => handleEditSave(mark)}>
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                            </button>
+                            <button title="Cancel" className="text-gray-600 font-semibold" onClick={() => setEditRowId(null)}>
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button title="Edit" className="text-blue-600 font-semibold mr-1" onClick={() => handleEdit(mark)}>
+                              <EditIcon />
+                            </button>
+                            <button title="Delete" className="text-red-600 font-semibold" onClick={() => handleDelete(mark._id)}>
+                              <TrashIcon />
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            (filterSection && filterYear && filterSemester) && <div>No marks found for this filter.</div>
+          )
+        )}
+      </div>
     </div>
   );
 }
-

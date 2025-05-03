@@ -33,14 +33,25 @@ export default function Register() {
     e.preventDefault();
     if (validate()) {
       try {
-        await apiRequest('/auth/register', {
+        await apiRequest('/student-registration/register', {
           method: 'POST',
-          body: JSON.stringify({ name, email, password, role: "student", section, year, rollNo, idNumber, phone })
+          body: JSON.stringify({ name, email, password, section, year, rollNo, idNumber, phone })
         });
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Registration successful! Please login.', type: 'success' } }));
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Registration request submitted! Await admin approval.', type: 'success' } }));
         window.location.href = '/login';
       } catch (err) {
-        // Error toast is already shown by apiRequest
+        // Enhanced error handling for already registered or pending users
+        if (err && err.message) {
+          if (err.message.includes('already registered')) {
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Email is already registered. Please login.', type: 'error' } }));
+            window.location.href = '/login';
+          } else if (err.message.includes('pending')) {
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'A registration request is already pending for this email. Check your status.', type: 'warning', link: '/registration-status' } }));
+            window.location.href = '/registration-status';
+          } else {
+            window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: err.message, type: 'error' } }));
+          }
+        }
       }
     }
   };
@@ -197,6 +208,9 @@ export default function Register() {
         </div>
         <button className="w-full bg-accent text-white py-2 rounded hover:bg-primary-dark transition">Register</button>
       </form>
+      <div className="mt-4 text-center">
+        <a href="/registration-status" className="text-indigo-600 hover:underline font-medium">Already registered or waiting for approval? Check your registration status</a>
+      </div>
     </div>
   );
 }

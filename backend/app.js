@@ -12,6 +12,12 @@ app.use(express.json());
 // Connect to MongoDB
 connectDB();
 
+// Debug: Log every request
+app.use((req, res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.originalUrl}`);
+  next();
+});
+
 // Routes
 app.get('/', (req, res) => {
     res.send('Student Management System API');
@@ -22,16 +28,28 @@ app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/subject', require('./routes/subject'));
 app.use('/api/quiz', require('./routes/quiz'));
 app.use('/api/student', require('./routes/student'));
+app.use('/api/student-registration', require('./routes/studentRegistration'));
 app.use('/api/report', require('./routes/report'));
 app.use('/api/notification', require('./routes/notification'));
 app.use('/api/audit', require('./routes/audit'));
 app.use('/api/import', require('./routes/import'));
 app.use('/api/admin/dashboard', require('./routes/dashboard'));
 
-// Error handling middleware (placeholder)
+// --- DEBUG TEST ROUTE ---
+app.get('/api/debug/error', (req, res) => {
+  throw new Error('This is a test error!');
+});
+
+// Error handling middleware (guaranteed to catch all errors)
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Server error', error: err.message });
+  console.error('[GLOBAL ERROR HANDLER]', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({
+    message: 'Global error handler caught an error',
+    error: err.message,
+    stack: err.stack,
+    received: req.body
+  });
 });
 
 const PORT = process.env.PORT || 5000;

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
+import { useAuth } from '../../context/AuthContext';
 
 export default function Quizzes() {
+  const { user } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -12,19 +14,20 @@ export default function Quizzes() {
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
+    if (!user || !user._id) return;
     setLoading(true);
     setError('');
     Promise.all([
-      apiRequest('/quiz/available'),
-      apiRequest('/quiz/attempts')
+      apiRequest(`/quiz/available/${user._id}`),
+      apiRequest(`/quiz/attempts/${user._id}`)
     ])
       .then(([q, a]) => {
-        setQuizzes(q);
-        setAttempts(a);
+        setQuizzes(Array.isArray(q) ? q : []);
+        setAttempts(Array.isArray(a) ? a : []);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [user]);
 
   const startQuiz = quiz => {
     setTakingQuiz(quiz);
@@ -88,53 +91,55 @@ export default function Quizzes() {
       {error && <div className="text-red-600">{error}</div>}
       <h3 className="text-lg font-bold mt-6 mb-2">Available Quizzes</h3>
       {quizzes.length > 0 ? (
-        <table className="w-full border mt-2">
-          <thead>
+        <table className="w-full border mt-2 text-sm rounded-xl shadow-lg bg-white overflow-x-auto">
+          <thead className="sticky top-0 bg-gray-50 z-10">
             <tr className="bg-gray-100">
-              <th className="p-2">Title</th>
-              <th className="p-2">Subject</th>
-              <th className="p-2">Deadline</th>
-              <th className="p-2">Actions</th>
+              <th className="p-2 text-center">Title</th>
+              <th className="p-2 text-center">Subject</th>
+              <th className="p-2 text-center">Deadline</th>
+              <th className="p-2 text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
             {quizzes.map(qz => (
-              <tr key={qz._id} className="border-t">
-                <td className="p-2">{qz.title}</td>
-                <td className="p-2">{qz.subject}</td>
-                <td className="p-2">{qz.deadline ? new Date(qz.deadline).toLocaleDateString() : ''}</td>
-                <td className="p-2">
-                  <button className="text-blue-600" onClick={() => startQuiz(qz)}>Take Quiz</button>
+              <tr key={qz._id} className="border-t hover:bg-blue-50 transition-all">
+                <td className="p-2 text-center">{qz.title}</td>
+                <td className="p-2 text-center">{qz.subject}</td>
+                <td className="p-2 text-center">{qz.deadline ? new Date(qz.deadline).toLocaleString() : '-'}</td>
+                <td className="p-2 text-center">
+                  <button className="bg-primary text-white px-4 py-1 rounded hover:bg-blue-700" onClick={() => startQuiz(qz)}>
+                    Take Quiz
+                  </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : (
-        !loading && <div>No available quizzes.</div>
+        !loading && <div className="text-gray-600">No available quizzes.</div>
       )}
-      <h3 className="text-lg font-bold mt-8 mb-2">Past Attempts</h3>
+      <h3 className="text-lg font-bold mt-8 mb-2">My Attempts</h3>
       {attempts.length > 0 ? (
-        <table className="w-full border mt-2">
-          <thead>
+        <table className="w-full border mt-2 text-sm rounded-xl shadow-lg bg-white overflow-x-auto">
+          <thead className="sticky top-0 bg-gray-50 z-10">
             <tr className="bg-gray-100">
-              <th className="p-2">Quiz</th>
-              <th className="p-2">Score</th>
-              <th className="p-2">Attempted At</th>
+              <th className="p-2 text-center">Quiz</th>
+              <th className="p-2 text-center">Score</th>
+              <th className="p-2 text-center">Submitted At</th>
             </tr>
           </thead>
           <tbody>
             {attempts.map(at => (
-              <tr key={at._id} className="border-t">
-                <td className="p-2">{at.quiz?.title}</td>
-                <td className="p-2">{at.score} / {at.totalMarks}</td>
-                <td className="p-2">{at.attemptedAt ? new Date(at.attemptedAt).toLocaleString() : ''}</td>
+              <tr key={at._id} className="border-t hover:bg-blue-50 transition-all">
+                <td className="p-2 text-center">{at.quizTitle}</td>
+                <td className="p-2 text-center">{at.score} / {at.totalMarks}</td>
+                <td className="p-2 text-center">{at.submittedAt ? new Date(at.submittedAt).toLocaleString() : '-'}</td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : (
-        !loading && <div>No attempts found.</div>
+        !loading && <div className="text-gray-600">No quiz attempts found.</div>
       )}
     </div>
   );

@@ -29,6 +29,8 @@ export default function Login() {
         localStorage.setItem('token', res.token);
         localStorage.setItem('user', JSON.stringify(res.user));
         setErrors({}); // Clear errors on successful login
+        // Show notification
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Login successful!', type: 'success' } }));
         // Redirect based on role
         if (res.user.role === 'admin') {
           window.location.href = '/admin';
@@ -101,6 +103,9 @@ export default function Login() {
         </div>
         <button className="w-full bg-primary text-white py-2 rounded hover:bg-primary-dark transition">Login</button>
       </form>
+      <div className="mt-4 text-center">
+        <a href="/registration-status" className="text-indigo-600 hover:underline font-medium">Waiting for approval? Check your registration status</a>
+      </div>
     </div>
   );
 }

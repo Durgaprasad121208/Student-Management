@@ -17,15 +17,37 @@ export async function apiRequest(endpoint, options = {}) {
   if (token) headers['Authorization'] = `Bearer ${token}`;
   try {
     const response = await fetch(url, { ...options, headers });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      showToast(error.message || response.statusText || 'API Error', 'error');
-      throw new Error(error.message || response.statusText || 'API Error');
+    let data, text;
+    try {
+      data = await response.clone().json();
+    } catch (e) {
+      try {
+        text = await response.clone().text();
+      } catch (e2) {
+        text = null;
+      }
     }
-    return response.json();
+    if (!response.ok) {
+      // Print the error to the browser console for debugging
+      console.error('[API ERROR]', {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+        data,
+        text,
+        options
+      });
+      showToast((data && data.message) || text || response.statusText || 'API Error', 'error');
+      const error = new Error((data && data.message) || text || response.statusText || 'API Error');
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+    return data;
   } catch (err) {
+    // Print the error to the browser console for debugging
+    console.error('[API CATCH ERROR]', err, { url, options });
     showToast(err.message || 'Network/API Error', 'error');
     throw err;
   }
 }
-

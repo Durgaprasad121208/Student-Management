@@ -11,8 +11,13 @@ export function AuthProvider({ children }) {
     const token = localStorage.getItem('token');
     if (token) {
       apiRequest('/auth/me')
-        .then(setUser)
-        .catch(() => setUser(null))
+        .then(res => {
+          setUser(res.user); // Only set the user object, not the wrapper
+        })
+        .catch(() => {
+          setUser(null);
+          localStorage.removeItem('token');
+        })
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
@@ -25,7 +30,7 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ email, password })
     });
     localStorage.setItem('token', res.token);
-    setUser(res.user);
+    setUser(res.user); // Only set the user object
     return res;
   };
 
@@ -35,13 +40,13 @@ export function AuthProvider({ children }) {
       body: JSON.stringify(data)
     });
     localStorage.setItem('token', res.token);
-    setUser(res.user);
+    setUser(res.user); // Only set the user object
     return res;
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
     setUser(null);
+    localStorage.removeItem('token');
   };
 
   return (

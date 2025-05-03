@@ -11,11 +11,9 @@ router.put('/:id', auth('admin'), quizController.updateQuiz);
 router.delete('/:id', auth('admin'), quizController.deleteQuiz);
 // Get all quizzes (filter by section/year/semester/subject)
 router.get('/', auth(['admin', 'student']), quizController.getQuizzes);
-// Student: Submit quiz attempt
-router.post('/submit', auth('student'), quizController.submitQuiz);
-// Student: Get their quiz attempts
-router.get('/attempts', auth('student'), quizController.getStudentAttempts);
-// Student: Get available quizzes
-router.get('/available', auth('student'), quizController.getAvailableQuizzes);
+// Get quiz attempts for a specific student
+router.get('/attempts/:studentId', auth(['admin', 'student']), quizController.getStudentAttempts);
+// Get available quizzes for a specific student
+router.get('/available/:studentId', auth(['admin', 'student']), quizController.getAvailableQuizzes);
 
 module.exports = router;

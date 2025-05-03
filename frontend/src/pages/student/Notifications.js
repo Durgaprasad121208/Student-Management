@@ -1,17 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
+import { useAuth } from '../../context/AuthContext';
 
 export default function StudentNotifications() {
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
 
   const fetchNotifications = async () => {
+    if (!user || !user._id) return;
     setLoading(true);
     setError('');
     try {
-      const res = await apiRequest('/notification/my');
+      // Fetch student profile first to get student._id
+      const student = await apiRequest('/student/my');
+      if (!student || !student._id) throw new Error('Student profile not found');
+      const res = await apiRequest(`/notification/${student._id}`);
       setNotifications(res);
     } catch (err) {
       setError(err.message);
@@ -20,7 +26,7 @@ export default function StudentNotifications() {
     }
   };
 
-  useEffect(() => { fetchNotifications(); }, []);
+  useEffect(() => { fetchNotifications(); }, [user]);
 
   const markAsRead = async id => {
     setMsg('');
@@ -57,55 +63,39 @@ export default function StudentNotifications() {
         </button>
       )}
       {notifications.length > 0 ? (
-        <table className="w-full border mt-4">
-          <thead>
+        <table className="w-full border mt-4 text-sm rounded-xl shadow-lg bg-white overflow-x-auto">
+          <thead className="sticky top-0 bg-gray-50 z-10">
             <tr className="bg-gray-100">
-              <th className="p-2">Message</th>
-              <th className="p-2">Type</th>
-              <th className="p-2">Read</th>
-              <th className="p-2">Created At</th>
-              <th className="p-2">Actions</th>
+              <th className="p-2 text-center">Message</th>
+              <th className="p-2 text-center">Type</th>
+              <th className="p-2 text-center">Read</th>
+              <th className="p-2 text-center">Created At</th>
+              <th className="p-2 text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
             {notifications.map(n => (
-              <tr key={n._id} className="border-t">
-                <td className="p-2">{n.message}</td>
-                <td className="p-2">{n.type}</td>
-                <td className="p-2">{n.read ? 'Yes' : 'No'}</td>
-                <td className="p-2">{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</td>
-                <td className="p-2">
+              <tr key={n._id} className={"border-t hover:bg-blue-50 transition-all " + (n.read ? "bg-gray-50" : "") }>
+                <td className="p-2 text-center">{n.message}</td>
+                <td className="p-2 text-center">{n.type}</td>
+                <td className="p-2 text-center">{n.read ? 'Yes' : 'No'}</td>
+                <td className="p-2 text-center">{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</td>
+                <td className="p-2 text-center">
                   {!n.read && (
                     <button
                       className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs"
-                      onClick={async () => {
-                        try {
-                          await apiRequest(`/notification/read/${n._id}`, { method: 'PATCH' });
-                          // Update local state
-                          n.read = true;
-                          // Optionally show a message
-                          // setMsg('Marked as read');
-                          // Force a state update
-                          setNotifications([...notifications]);
-                        } catch (err) {
-                          // Optionally show error
-                          // setError('Failed to mark as read');
-                        }
-                      }}
+                      onClick={() => markAsRead(n._id)}
                     >
                       Mark as Read
                     </button>
                   )}
-                </td>
-                <td className="p-2">
-                  {!n.read && <button className="text-blue-600" onClick={() => markAsRead(n._id)}>Mark as Read</button>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : (
-        !loading && <div>No notifications found.</div>
+        !loading && <div className="text-gray-600">No notifications found.</div>
       )}
     </div>
   );

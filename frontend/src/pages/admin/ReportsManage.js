@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
 import { PdfIcon, CsvIcon } from './_ReportIcons';
 import { ExcelIcon } from './_ReportIcons';
+import { TrashIcon } from './_Icon';
 
 function formatDate(date) {
   if (!date) return '';
@@ -32,6 +33,9 @@ export default function ReportsManage() {
   });
   const [generating, setGenerating] = useState(false);
 
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState([]);
+
   // Fetch students for dropdown
   const fetchStudents = async () => {
     try {
@@ -41,7 +45,6 @@ export default function ReportsManage() {
       setStudents([]);
     }
   };
-
 
   const fetchReports = async () => {
     setLoading(true);
@@ -59,10 +62,15 @@ export default function ReportsManage() {
   useEffect(() => { fetchReports(); fetchStudents(); }, []);
 
   const handleDownload = async (id, format) => {
+    if (format === 'pdf') {
+      setError('PDF download is not supported. Please use Excel or CSV.');
+      return;
+    }
     try {
       const token = localStorage.getItem('token');
       const url = `${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/${id}/download?format=${format}`;
       const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Download failed');
       const blob = await res.blob();
       const link = document.createElement('a');
       link.href = window.URL.createObjectURL(blob);
@@ -71,6 +79,45 @@ export default function ReportsManage() {
       setMsg(`Downloaded report as ${format.toUpperCase()}`);
     } catch (err) {
       setError('Failed to download report.');
+    }
+  };
+
+  // Toggle selection of a single report
+  const handleSelect = (id, checked) => {
+    setSelectedIds(ids => checked ? [...ids, id] : ids.filter(_id => _id !== id));
+  };
+
+  // Toggle select all
+  const handleSelectAll = (checked) => {
+    if (checked) {
+      setSelectedIds(filteredReports.map(r => r._id));
+    } else {
+      setSelectedIds([]);
+    }
+  };
+
+  // Bulk delete handler
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.length} selected report(s)?`)) return;
+    setError('');
+    setMsg('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/bulk-delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ ids: selectedIds })
+      });
+      if (!res.ok) throw new Error('Failed to delete selected reports');
+      setReports(reports => reports.filter(r => !selectedIds.includes(r._id)));
+      setMsg('Selected reports deleted.');
+      setSelectedIds([]);
+    } catch (err) {
+      setError(err.message || 'Failed to delete selected reports');
     }
   };
 
@@ -104,19 +151,51 @@ export default function ReportsManage() {
     setMsg('');
     setError('');
     try {
-      if (!form.studentId || !form.indSemester) throw new Error('Select student and semester');
-      const params = `studentId=${form.studentId}&semester=${form.indSemester}&reportType=${form.indReportType}`;
-      const url = `${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/student?${params}`;
-      const token = localStorage.getItem('token');
-      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (!res.ok) throw new Error('Failed to generate report');
-      const blob = await res.blob();
-      const link = document.createElement('a');
-      link.href = window.URL.createObjectURL(blob);
-      link.download = `student_report_${form.studentId}_${form.indSemester}.pdf`;
-      link.click();
-      setMsg('Report generated and downloaded!');
-      setTimeout(fetchReports, 1200);
+      if (form.reportMode === 'individual') {
+        if (!form.studentId || !form.indSemester) throw new Error('Select student and semester');
+        // Use POST to generate & save the report, then GET to download
+        const params = `studentId=${form.studentId}&semester=${form.indSemester}&reportType=${form.indReportType}`;
+        const token = localStorage.getItem('token');
+        // 1. Generate and save report (POST)
+        const genRes = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/student?${params}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!genRes.ok) throw new Error('Failed to generate report');
+        // 2. Download report (GET)
+        const dlRes = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/student/${form.studentId}?semester=${form.indSemester}&reportType=${form.indReportType}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const blob = await dlRes.blob();
+        const link = document.createElement('a');
+        link.href = window.URL.createObjectURL(blob);
+        link.download = `student_report_${form.studentId}_${form.indSemester}.xlsx`;
+        link.click();
+        setMsg('Report generated, saved, and downloaded!');
+        fetchReports();
+      } else {
+        if (!form.classSection || !form.classYear || !form.classSemester) throw new Error('Select section, year, and semester');
+        // Use POST to generate & save the report, then GET to download
+        const params = `section=${form.classSection}&year=${form.classYear}&semester=${form.classSemester}&format=xlsx&reportType=${form.classReportType}`;
+        const token = localStorage.getItem('token');
+        // 1. Generate and save report (POST)
+        const genRes = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/class?${params}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!genRes.ok) throw new Error('Failed to generate class report');
+        // 2. Download report (GET)
+        const dlRes = await fetch(`${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/class?${params}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const blob = await dlRes.blob();
+        const link = document.createElement('a');
+        link.href = window.URL.createObjectURL(blob);
+        link.download = `class_report_${form.classSection}_${form.classYear}_${form.classSemester}.xlsx`;
+        link.click();
+        setMsg('Class-wise report generated, saved, and downloaded!');
+        fetchReports();
+      }
     } catch (err) {
       setError(err.message || 'Failed to generate report');
     } finally {
@@ -128,7 +207,7 @@ export default function ReportsManage() {
     <div className="p-8 max-w-5xl mx-auto">
       <h2 className="text-2xl font-bold mb-4">Reports Management</h2>
       {/* Generate Report Form */}
-       {/* Report Mode Selection */}
+      {/* Report Mode Selection */}
       <div className="flex gap-6 mb-4 items-center">
         <label className="inline-flex items-center">
           <input
@@ -184,7 +263,8 @@ export default function ReportsManage() {
             </div>
             <div>
               <label className="block text-sm font-semibold mb-1">Report Type</label>
-              <select name="classReportType" value={form.classReportType || 'Performance'} onChange={e => setForm(f => ({ ...f, classReportType: e.target.value }))} className="p-2 border rounded w-32">
+              <select name="classReportType" value={form.classReportType || 'All'} onChange={e => setForm(f => ({ ...f, classReportType: e.target.value }))} className="p-2 border rounded w-32">
+                <option value="All">All</option>
                 <option value="Performance">Performance</option>
                 <option value="Attendance">Attendance</option>
                 <option value="Marks">Marks</option>
@@ -234,7 +314,8 @@ export default function ReportsManage() {
             </div>
             <div>
               <label className="block text-sm font-semibold mb-1">Report Type</label>
-              <select name="indReportType" value={form.indReportType || 'Performance'} onChange={e => setForm(f => ({ ...f, indReportType: e.target.value }))} className="p-2 border rounded w-32">
+              <select name="indReportType" value={form.indReportType || 'All'} onChange={e => setForm(f => ({ ...f, indReportType: e.target.value }))} className="p-2 border rounded w-32">
+                <option value="All">All</option>
                 <option value="Performance">Performance</option>
                 <option value="Attendance">Attendance</option>
                 <option value="Marks">Marks</option>
@@ -302,26 +383,29 @@ export default function ReportsManage() {
             <table className="min-w-full border">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="p-2">Type</th>
-                  <th className="p-2">Section</th>
-                  <th className="p-2">Year</th>
-                  <th className="p-2">Semester</th>
-                  <th className="p-2">Created</th>
-                  <th className="p-2">Actions</th>
+                  <th className="p-2 text-center">
+                    <input type="checkbox" checked={selectedIds.length > 0 && selectedIds.length === filteredReports.length} onChange={e => handleSelectAll(e.target.checked)} />
+                  </th>
+                  <th className="p-2 text-center">Type</th>
+                  <th className="p-2 text-center">Section</th>
+                  <th className="p-2 text-center">Year</th>
+                  <th className="p-2 text-center">Semester</th>
+                  <th className="p-2 text-center">Created</th>
+                  <th className="p-2 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredReports.map(r => (
                   <tr key={r._id} className="border-t">
-                    <td className="p-2">{r.type}</td>
-                    <td className="p-2">{r.data.section || '-'}</td>
-                    <td className="p-2">{r.data.year || '-'}</td>
-                    <td className="p-2">{r.data.semester || '-'}</td>
-                    <td className="p-2">{formatDate(r.createdAt)}</td>
-                    <td className="p-2 flex gap-2 items-center">
-                      <button title="Download PDF" onClick={() => handleDownload(r._id, 'pdf')} className="text-red-600 hover:text-red-800">
-                        <PdfIcon />
-                      </button>
+                    <td className="p-2 text-center">
+                      <input type="checkbox" checked={selectedIds.includes(r._id)} onChange={e => handleSelect(r._id, e.target.checked)} />
+                    </td>
+                    <td className="p-2 text-center">{r.type}</td>
+                    <td className="p-2 text-center">{r.data.section || '-'}</td>
+                    <td className="p-2 text-center">{r.data.year || '-'}</td>
+                    <td className="p-2 text-center">{r.data.semester || '-'}</td>
+                    <td className="p-2 text-center">{formatDate(r.createdAt)}</td>
+                    <td className="p-2 text-center flex gap-2 items-center justify-center">
                       <button title="Download CSV" onClick={() => handleDownload(r._id, 'csv')} className="text-green-700 hover:text-green-900">
                         <CsvIcon />
                       </button>
@@ -339,11 +423,12 @@ export default function ReportsManage() {
                           if (!res.ok) throw new Error('Failed to delete report');
                           setMsg('Report deleted.');
                           setReports(reports => reports.filter(rep => rep._id !== r._id));
+                          setSelectedIds(ids => ids.filter(_id => _id !== r._id));
                         } catch (err) {
                           setError(err.message || 'Failed to delete report');
                         }
                       }} className="text-gray-400 hover:text-gray-700 ml-2" style={{fontSize: '1.2em'}}>
-                        🗑️
+                        <TrashIcon className="inline-block align-middle" />
                       </button>
                     </td>
                   </tr>
@@ -354,6 +439,15 @@ export default function ReportsManage() {
         </div>
       ) : (
         !loading && <div>No reports found.</div>
+      )}
+      {filteredReports.length > 0 && (
+        <button
+          className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 mt-4 disabled:opacity-60"
+          onClick={handleBulkDelete}
+          disabled={selectedIds.length === 0}
+        >
+          Delete Selected
+        </button>
       )}
     </div>
   );

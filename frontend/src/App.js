@@ -12,6 +12,7 @@ import MarksManage from './pages/admin/MarksManage';
 import QuizzesManage from './pages/admin/QuizzesManage';
 import ReportsManage from './pages/admin/ReportsManage';
 import NotificationsManage from './pages/admin/NotificationsManage';
+import AdminStudentRequests from './pages/admin/StudentRequests';
 
 import AdminLayout from './layouts/AdminLayout';
 import Subjects from './pages/admin/Subjects';
@@ -23,13 +24,15 @@ import StudentQuizzes from './pages/student/Quizzes';
 import StudentReports from './pages/student/Reports';
 import StudentNotifications from './pages/student/Notifications';
 import StudentLayout from './layouts/StudentLayout';
+import StudentSubjects from './pages/student/Subjects'; // Assuming this component exists
 
 import NotFound from './pages/NotFound';
 import Navbar from './components/Navbar';
+import Toast from './components/Toast';
 import './index.css';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
-
+import RegistrationStatus from './pages/RegistrationStatus';
 
 function App() {
   React.useEffect(() => {
@@ -41,7 +44,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        
+        <Toast />
         <Navbar apiBaseUrl={config.API_BASE_URL} />
         <div className="pt-8">
           <Routes>
@@ -49,6 +52,7 @@ function App() {
             <Route path="/about" element={<About />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/registration-status" element={<RegistrationStatus />} />
 
             <Route path="/admin" element={<ProtectedRoute roles={["admin"]}>
               <AdminLayout><AdminDashboard /></AdminLayout>
@@ -74,6 +78,7 @@ function App() {
             <Route path="/admin/notifications" element={<ProtectedRoute roles={["admin"]}>
               <AdminLayout><NotificationsManage /></AdminLayout>
             </ProtectedRoute>} />
+            <Route path="/admin/StudentRequests" element={<ProtectedRoute roles={["admin"]}><AdminLayout><AdminStudentRequests /></AdminLayout></ProtectedRoute>} />
 
             <Route path="/student" element={<ProtectedRoute roles={["student"]}>
               <StudentLayout><StudentDashboard /></StudentLayout>
@@ -95,6 +100,9 @@ function App() {
             </ProtectedRoute>} />
             <Route path="/student/notifications" element={<ProtectedRoute roles={["student"]}>
               <StudentLayout><StudentNotifications /></StudentLayout>
+            </ProtectedRoute>} />
+            <Route path="/student/subjects" element={<ProtectedRoute roles={["student"]}>
+              <StudentLayout><StudentSubjects /></StudentLayout>
             </ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
