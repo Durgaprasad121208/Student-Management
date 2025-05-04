@@ -131,16 +131,64 @@ exports.getStudentAttempts = async (req, res) => {
 // Get available quizzes for the authenticated student
 exports.getAvailableQuizzes = async (req, res) => {
   try {
-    const studentId = req.user.studentId || req.user.id;
+    // Use studentId from params if present (admin), else from JWT (student)
+    let studentId = req.params.studentId;
+    if (!studentId || studentId === 'me') {
+      studentId = req.user.studentId || req.user.id;
+    }
     const student = await Student.findById(studentId);
     if (!student) return res.status(404).json({ message: 'Student profile not found' });
-    const filter = {
+    // Normalize section, year, and semester for flexible matching
+    function normalizeSection(section) {
+      if (!section) return section;
+      const match = section.match(/cse[-_ ]?(\d+)/i);
+      if (match) {
+        return `CSE-` + match[1].padStart(2, '0');
+      }
+      return section.toUpperCase();
+    }
+    function normalizeYear(year) {
+      if (!year) return year;
+      if (/^E-\d$/.test(year)) return 'E' + year[2]; // 'E-1' => 'E1'
+      if (/^E\d$/.test(year)) return year;
+      return year.toUpperCase();
+    }
+    function normalizeSemester(sem) {
+      if (sem === 'sem1' || sem === '1') return 'sem1';
+      if (sem === 'sem2' || sem === '2') return 'sem2';
+      return sem;
+    }
+    let semesterList = [];
+    if (!student.semester) {
+      semesterList = ['sem1', 'sem2'];
+      console.warn('[QUIZ][AVAILABLE] WARNING: Student semester is undefined, matching both "sem1" and "sem2" quizzes. Please fix the student document in MongoDB.');
+    } else {
+      const normalizedSemester = normalizeSemester(student.semester);
+      semesterList = [student.semester, normalizedSemester];
+    }
+    const normalizedSection = normalizeSection(student.section);
+    const normalizedYear = normalizeYear(student.year);
+    // Log student and normalized values
+    console.log('[QUIZ][AVAILABLE] Student:', {
       section: student.section,
-      year: normalizeYear(student.year),
-      semester: normalizeSemester(student.semester),
+      year: student.year,
+      semester: student.semester
+    });
+    console.log('[QUIZ][AVAILABLE] Normalized:', {
+      section: normalizedSection,
+      year: normalizedYear,
+      semesterList
+    });
+    // Find quizzes that match normalized values
+    const quizFilter = {
+      section: { $in: [student.section, normalizedSection] },
+      year: { $in: [student.year, normalizedYear] },
+      semester: { $in: semesterList },
       isActive: true
     };
-    const quizzes = await Quiz.find(filter);
+    console.log('[QUIZ][AVAILABLE] Quiz filter:', quizFilter);
+    const quizzes = await Quiz.find(quizFilter);
+    console.log(`[QUIZ][AVAILABLE] Quizzes found: ${quizzes.length}`);
     res.json(quizzes);
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -196,15 +244,25 @@ exports.getQuizReview = async (req, res) => {
     const quiz = await Quiz.findById(quizId).lean();
     const attempt = await QuizAttempt.findOne({ quizId, studentId }).lean();
     if (!quiz || !attempt) return res.status(404).json({ message: 'Not found' });
-    // Map answers for quick lookup
-    const answerMap = {};
-    (attempt.answers || []).forEach(a => { answerMap[String(a.questionId)] = a.selectedOption; });
-    const questions = quiz.questions.map(q => ({
-  ...q,
-  text: q.text || q.questionText || '',
-  submittedOption: answerMap[String(q._id)] ?? null,
-  isCorrect: answerMap[String(q._id)] === q.correctOption
-}));
+
+    // Always use Quiz model for question text, options, and correct answer
+    // Use QuizAttempt.answers for submitted answers
+    const questions = quiz.questions.map(q => {
+      const submitted = (attempt.answers || []).find(a => String(a.questionId) === String(q._id));
+      const submittedOption = submitted ? submitted.selectedOption : null;
+      return {
+        questionId: q._id,
+        questionText: q.questionText || q.text || '',
+        options: q.options,
+        correctOption: q.correctOption,
+        correctOptionText: typeof q.options[q.correctOption] !== 'undefined' ? q.options[q.correctOption] : null,
+        marks: q.marks || 1,
+        submittedOption: submittedOption,
+        submittedOptionText: submittedOption !== null && typeof q.options[submittedOption] !== 'undefined' ? q.options[submittedOption] : null,
+        isCorrect: submittedOption !== null && submittedOption === q.correctOption
+      };
+    });
+
     res.json({
       quizId: quiz._id,
       title: quiz.title,

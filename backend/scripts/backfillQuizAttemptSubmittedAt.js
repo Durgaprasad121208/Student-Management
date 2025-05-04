@@ -2,7 +2,7 @@
 const mongoose = require('mongoose');
 const QuizAttempt = require('../models/QuizAttempt');
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/your-db-name';
+const MONGO_URI = process.env.MONGO_URI;
 
 async function backfillSubmittedAt() {
   await mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });

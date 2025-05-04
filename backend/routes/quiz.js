@@ -15,6 +15,8 @@ router.get('/', auth(['admin', 'student']), quizController.getQuizzes);
 router.get('/attempts/:studentId', auth(['admin', 'student']), quizController.getStudentAttempts);
 // Get available quizzes for a specific student
 router.get('/available/:studentId', auth(['admin', 'student']), quizController.getAvailableQuizzes);
+// Get available quizzes for the current student (from JWT)
+router.get('/available/me', auth(['student']), quizController.getAvailableQuizzes);
 // Student: Get all quizzes for their section/year/semester/subject with status
 router.get('/all-with-status/:studentId', auth(['student']), quizController.getAllQuizzesWithStatus);
 // Student: Get all quizzes for their section/year/semester/subject with status (current user)

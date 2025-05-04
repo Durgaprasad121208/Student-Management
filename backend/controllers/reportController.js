@@ -96,6 +96,7 @@ exports.generateStudentReport = async (req, res) => {
       await Report.create({
         studentId: student._id,
         type: reportType,
+        generatedBy: req.user.id, // Ensure the report is linked to the user who generated it
         data: {
           name: student.userId.name,
           email: student.userId.email,
@@ -106,8 +107,7 @@ exports.generateStudentReport = async (req, res) => {
           attendance: attendanceTable,
           marks: marksTable,
           quizzes: quizTable
-        },
-        generatedBy: req.user.id
+        }
       });
     }
 

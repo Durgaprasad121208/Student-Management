@@ -75,7 +75,10 @@ export default function StudentReports() {
     try {
       const token = localStorage.getItem('token');
       const url = `${window.location.origin.replace(/:[0-9]+$/, ':5000')}/api/report/student/${studentId}?semester=${semester}&reportType=${reportType}&format=${format}`;
-      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       if (!res.ok) throw new Error('Failed to generate/download report');
       const blob = await res.blob();
       const link = document.createElement('a');

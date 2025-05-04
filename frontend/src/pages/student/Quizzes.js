@@ -212,74 +212,90 @@ function Quizzes() {
     return (
       <div className="p-8 max-w-3xl mx-auto">
         <h2 className="text-2xl font-bold mb-4">Quiz: {takingQuiz.title}</h2>
-        {takingQuiz.duration && (
+        {takingQuiz.duration && !takingQuiz.review && (
           <div className="mb-4 text-lg font-semibold text-red-600">Time Left: {timeLeft !== null ? `${Math.floor(timeLeft/60)}:${(timeLeft%60).toString().padStart(2,'0')}` : '--:--'}</div>
         )}
         {takingQuiz.review ? (
-  <div>
-    <pre style={{background:'#eee',padding:'10px',marginBottom:'10px',fontSize:'12px',overflow:'auto'}}>
-  {JSON.stringify(takingQuiz.reviewQuestions, null, 2)}
-</pre>
-{Array.isArray(takingQuiz.reviewQuestions) && takingQuiz.reviewQuestions.map((q, idx) => (
-      <div key={q._id} className="border rounded p-4 mb-2 bg-gray-50">
-        <div className="font-semibold mb-2">Q{idx + 1}. {q.text}</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {q.options.map((opt, oIdx) => {
-            const isCorrect = q.correctOption === oIdx;
-            const isSelected = q.submittedOption === oIdx;
-            let optionClass = '';
-            if (isCorrect) optionClass += ' bg-green-100';
-            if (isSelected && !isCorrect) optionClass += ' bg-blue-100';
-            if (isSelected) optionClass += ' font-bold underline';
-            return (
-              <div key={oIdx} className={`flex items-center gap-2 rounded px-2 py-1${optionClass}`}>
-                <input
-                  type="radio"
-                  checked={isSelected}
-                  disabled
-                />
-                {opt}
-                {isCorrect && isSelected && (
-                  <>
-                    <span className="text-green-700 font-bold">(Correct)</span>
-                    <span className="text-blue-700 font-bold ml-2">(Your Answer)</span>
-                  </>
-                )}
-                {isCorrect && !isSelected && (
-                  <span className="text-green-700 font-bold">(Correct)</span>
-                )}
-                {!isCorrect && isSelected && (
-                  <span className="text-blue-700 font-bold">(Your Answer)</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    ))}
-    <div className="mt-6 p-4 bg-green-100 rounded">
-      <div className="font-bold">Your Score: {takingQuiz.reviewScore ?? 0} / {takingQuiz.reviewTotalMarks ?? 0}</div>
-      <div>
-        Correct: {takingQuiz.reviewCorrectCount ?? 0} |
-        Incorrect: {takingQuiz.reviewIncorrectCount ?? 0}
-      </div>
-      <button
-        className="mt-4 bg-primary text-white px-6 py-2 rounded"
-        onClick={() => {
-          setTakingQuiz(null);
-          setResult(null);
-        }}
-      >
-        Close
-      </button>
+          <div>
+            <h3 className="text-xl font-bold mb-4">Quiz Review</h3>
+            {Array.isArray(takingQuiz.reviewQuestions) && takingQuiz.reviewQuestions.map((q, idx) => (
+  <div key={q.questionId} className="border rounded p-4 mb-4 bg-gray-50">
+    <div className="font-semibold mb-2">Q{idx + 1}. {q.questionText || q.text}</div>
+    <div className="mb-2">
+      {q.submittedOption !== null ? (
+        q.isCorrect ? (
+          <span className="inline-flex items-center text-green-700 font-semibold">
+            <span className="mr-1">✔️</span>
+            Your answer was correct: <span className="ml-2 bg-green-100 px-2 py-1 rounded">{q.submittedOptionText} (#{q.submittedOption})</span>
+          </span>
+        ) : (
+          <>
+            <span className="inline-flex items-center text-red-700 font-semibold">
+              <span className="mr-1">❌</span>
+              Your answer: <span className="ml-2 bg-red-100 px-2 py-1 rounded">{q.submittedOptionText} (#{q.submittedOption})</span>
+            </span>
+            <br />
+            <span className="inline-flex items-center text-green-700 font-semibold mt-1">
+              <span className="mr-1">✔️</span>
+              Correct answer: <span className="ml-2 bg-green-100 px-2 py-1 rounded">{q.correctOptionText} (#{q.correctOption})</span>
+            </span>
+          </>
+        )
+      ) : (
+        <span className="text-gray-500">No answer submitted.</span>
+      )}
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+      {q.options.map((opt, oIdx) => {
+        const isCorrect = q.correctOption === oIdx;
+        const isSelected = q.submittedOption === oIdx;
+        let optionClass = '';
+        if (isCorrect) optionClass += ' bg-green-100';
+        if (isSelected && !isCorrect) optionClass += ' bg-blue-100';
+        if (isSelected) optionClass += ' font-bold underline';
+        return (
+          <div key={oIdx} className={`flex items-center gap-2 rounded px-2 py-1${optionClass}`}>
+            <input
+              type="radio"
+              checked={isSelected}
+              disabled
+            />
+            {opt}
+            {isSelected && (
+              <span className={isCorrect ? "text-green-700 font-bold ml-2" : "text-blue-700 font-bold ml-2"}>
+                (Your Answer)
+              </span>
+            )}
+            {!isSelected && isCorrect && (
+              <span className="text-green-700 font-bold ml-2">(Correct Answer)</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   </div>
-
+))}
+            <div className="mt-6 p-4 bg-green-100 rounded">
+              <div className="font-bold">Your Score: {takingQuiz.reviewScore ?? 0} / {takingQuiz.reviewTotalMarks ?? 0}</div>
+              <div>
+                Correct: {takingQuiz.reviewCorrectCount ?? 0} |
+                Incorrect: {takingQuiz.reviewIncorrectCount ?? 0}
+              </div>
+              <button
+                className="mt-4 bg-primary text-white px-6 py-2 rounded"
+                onClick={() => {
+                  setTakingQuiz(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
             {takingQuiz.questions.map((q, idx) => (
               <div key={q._id} className="border rounded p-4 mb-2 bg-gray-50">
-                <div className="font-semibold mb-2">Q{idx + 1}. {q.text}</div>
+                <div className="font-semibold mb-2">Q{idx + 1}. {q.text || q.questionText}</div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {q.options.map((opt, oIdx) => (
                     <label key={oIdx} className="flex items-center gap-2">
@@ -291,7 +307,7 @@ function Quizzes() {
                         onChange={() => handleAnswer(q._id, oIdx)}
                         required
                       />
-                      {opt} <span>{getFeedback(q._id, oIdx)}</span>
+                      {opt}
                     </label>
                   ))}
                 </div>
@@ -302,7 +318,7 @@ function Quizzes() {
           </form>
         )}
         {msg && <div className="mt-4 text-green-600">{msg}</div>}
-        {result && (
+        {result && !takingQuiz.review && (
           <div className="mt-6 p-4 bg-green-100 rounded">
             <div className="font-bold">Your Score: {typeof result.score !== 'undefined' ? result.score : 0} / {typeof result.totalMarks !== 'undefined' ? result.totalMarks : quizzes.find(q => q._id === takingQuiz?._id)?.questions?.length || 0}</div>
             <div>
@@ -401,7 +417,7 @@ function Quizzes() {
                       {qz.status === 'Attempted' && (
                         <button
                           className="bg-gray-600 text-white px-4 py-1 rounded hover:bg-gray-800"
-                          onClick={() => setTakingQuiz(qz)}
+                          onClick={() => startQuiz(qz)}
                         >
                           Review
                         </button>
@@ -436,15 +452,31 @@ function Quizzes() {
               </tr>
             </thead>
             <tbody>
-              {attempts
-                .filter(at => at.quizTitle && typeof at.score !== 'undefined')
-                .map(at => (
-                  <tr key={at._id} className="border-t hover:bg-blue-50 transition-all">
-                    <td className="p-2 text-center">{at.quizTitle}</td>
-                    <td className="p-2 text-center">{at.score} / {at.totalMarks}</td>
-                    <td className="p-2 text-center">{at.submittedAt ? new Date(at.submittedAt).toLocaleString() : '-'}</td>
-                  </tr>
-                ))}
+              {quizzes.map(qz => {
+                  const at = attempts.find(a => a.quizId === qz._id);
+                  if (at) {
+                    // Attempted
+                    return (
+                      <tr key={at._id} className="border-t hover:bg-blue-50 transition-all">
+                        <td className="p-2 text-center">{at.quizTitle}</td>
+                        <td className="p-2 text-center">{at.score} / {at.totalMarks}</td>
+                        <td className="p-2 text-center">{at.submittedAt ? new Date(at.submittedAt).toLocaleString() : '-'}</td>
+                      </tr>
+                    );
+                  } else if (qz.status === 'Missed') {
+                    // Missed
+                    const totalMarks = qz.questions ? qz.questions.reduce((sum, qq) => sum + (qq.marks || 1), 0) : 0;
+                    return (
+                      <tr key={qz._id} className="border-t hover:bg-blue-50 transition-all">
+                        <td className="p-2 text-center">{qz.title}</td>
+                        <td className="p-2 text-center">0 / {totalMarks}</td>
+                        <td className="p-2 text-center">-</td>
+                      </tr>
+                    );
+                  } else {
+                    return null;
+                  }
+                })}
             </tbody>
           </table>
         ) : (
