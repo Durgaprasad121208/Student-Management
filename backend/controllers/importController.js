@@ -5,6 +5,7 @@ const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const Attendance = require('../models/Attendance');
+const Subject = require('../models/Subject');
 
 // Bulk import students from Excel
 exports.importStudents = async (req, res) => {
@@ -113,10 +114,44 @@ function normalizeDate(dateStr) {
   return d;
 }
 
+// Normalization helpers (match attendanceController.js logic)
+function normalizeSemester(semester) {
+  if (!semester) return null;
+  const s = String(semester).toLowerCase();
+  if (s === 'sem1' || s === '1') return 'sem1';
+  if (s === 'sem2' || s === '2') return 'sem2';
+  return null;
+}
+function normalizeSemesterForSubject(semester) {
+  // For Subject model, semester is '1' or '2'
+  if (!semester) return null;
+  const s = String(semester).toLowerCase();
+  if (s === 'sem1' || s === '1') return '1';
+  if (s === 'sem2' || s === '2') return '2';
+  return null;
+}
+function normalizeYear(year) {
+  if (!year) return null;
+  let y = String(year).replace(/[-\s]/g, '').toUpperCase();
+  if (y.startsWith('E') && y.length === 2) y = `E-${y[1]}`;
+  return y;
+}
+function normalizeSection(section) {
+  return section ? String(section).trim().toUpperCase() : null;
+}
+
 // Bulk import attendance from Excel
 exports.importAttendance = async (req, res) => {
   // Step 1: Check for confirmation flag (from body or query)
-  const confirmUpdate = req.body.confirmUpdate === true || req.query.confirmUpdate === 'true';
+  // Accept 'true' (string), true (boolean), 1 (number/string), etc.
+  let confirmUpdate = false;
+  if (req.body && (req.body.confirmUpdate === 'true' || req.body.confirmUpdate === true || req.body.confirmUpdate === 1 || req.body.confirmUpdate === '1')) {
+    confirmUpdate = true;
+  } else if (req.query && (req.query.confirmUpdate === 'true' || req.query.confirmUpdate === true || req.query.confirmUpdate === 1 || req.query.confirmUpdate === '1')) {
+    confirmUpdate = true;
+  }
+  console.log('[importAttendance] confirmUpdate:', confirmUpdate, 'body:', req.body.confirmUpdate, 'query:', req.query.confirmUpdate);
+
   console.log('📁 Received file for attendance import...');
   try {
     if (!req.file) {
@@ -152,7 +187,7 @@ const notifications = [];
           Subject: subject
         } = row;
 
-        // Normalize and trim all fields
+        // Normalize and trim all fields using helpers
         if (typeof idNumber === 'string') idNumber = idNumber.trim();
         if (typeof date === 'string') date = date.trim();
         if (typeof status === 'string') {
@@ -167,14 +202,9 @@ const notifications = [];
             continue;
           }
         }
-        if (typeof section === 'string') section = section.trim().toUpperCase();
-        if (typeof year === 'string') year = year.trim().toUpperCase();
-        if (typeof semester === 'string') {
-          let s = semester.trim().toLowerCase();
-          if (s === 'sem1' || s === '1') semester = 'sem1';
-          else if (s === 'sem2' || s === '2') semester = 'sem2';
-          else semester = null; // Unrecognized, will be caught below
-        }
+        section = normalizeSection(section);
+        year = normalizeYear(year);
+        semester = normalizeSemester(semester);
         if (typeof subject === 'string') subject = subject.trim();
 
         if (!idNumber || !date || !status || !section || !year || !semester || !subject) {
@@ -191,13 +221,29 @@ const notifications = [];
           continue;
         }
 
+        // Normalize semester and year for Subject validation (match attendanceController.js)
+        const subjectSemester = normalizeSemesterForSubject(semester);
+        const subjectYear = normalizeYear(year);
+        // Validate subject exists for year+semester
+        const validSubject = await Subject.findOne({
+          $or: [
+            { name: subject, year: subjectYear, semester: subjectSemester },
+            { code: subject, year: subjectYear, semester: subjectSemester }
+          ]
+        });
+        if (!validSubject) {
+          skipped++;
+          errors.push({ row: index + 2, reason: `Subject '${subject}' not found for year ${subjectYear} and semester ${subjectSemester}` });
+          continue;
+        }
+
         const filter = {
           studentId: student._id,
           date: normalizeDate(date),
-          subject: subject
+          subject: validSubject.name // always use canonical subject name
         };
         // Prevent importing attendance for future dates
-        const now = new Date('2025-05-02T13:26:08+05:30');
+        const now = new Date();
         const normalizedDate = normalizeDate(date);
         if (normalizedDate > now) {
           skipped++;
@@ -207,9 +253,9 @@ const notifications = [];
         const update = {
           status,
           section,
-          year,
+          year: subjectYear,
           semester,
-          subject,
+          subject: validSubject.name,
           date: normalizeDate(date),
           studentId: student._id
         };
@@ -236,7 +282,16 @@ const notifications = [];
               dryRunNoChange.push({ row: index + 2, idNumber });
             }
           } else {
-            dryRunCreate.push({ row: index + 2, idNumber });
+            dryRunCreate.push({
+  studentId: student._id,
+  date: normalizeDate(date),
+  status,
+  section,
+  year: subjectYear,
+  semester,
+  subject: validSubject.name,
+  idNumber
+});
           }
         } else {
           // Actual update/insert

@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
+import AttendanceBulkImport from './AttendanceBulkImport';
 
 import { fetchExistingAttendance } from './AttendanceManageHelpers';
 
 export default function AttendanceManage() {
+  // ...existing state and logic...
+
   const [students, setStudents] = useState([]);
   const [attendance, setAttendance] = useState({});
   const [lockedAttendance, setLockedAttendance] = useState({}); // New state for locked attendance
@@ -280,8 +283,11 @@ export default function AttendanceManage() {
   const anyUnlocked = students.some(s => !lockedAttendance[s._id]);
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <h2 className="text-2xl font-bold mb-4">Attendance Management</h2>
+    <div className="p-8 max-w-6xl mx-auto">
+      <AttendanceBulkImport onSuccess={() => { setMsg('Bulk attendance import successful!'); }} />
+      <div className="mb-8 text-center">
+        <h2 className="text-3xl font-extrabold text-primary-dark mb-4 drop-shadow">Attendance Management</h2>
+      </div>
       <form className="mb-6 flex flex-wrap gap-4 items-end" onSubmit={handleSubmit}>
         <select value={section} onChange={e => setSection(e.target.value)} className="p-2 border rounded" required>
           <option value="">Section</option>
