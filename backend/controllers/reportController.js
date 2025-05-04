@@ -64,6 +64,7 @@ exports.generateStudentReport = async (req, res) => {
         percent: data.total > 0 ? ((data.presents / data.total) * 100).toFixed(2) : '0.00'
       }));
     }
+
     // --- Marks Table ---
     function getMarksTable(marks) {
       return marks.map(m => ({
@@ -75,6 +76,7 @@ exports.generateStudentReport = async (req, res) => {
         percent: m.maxScore > 0 ? ((m.score / m.maxScore) * 100).toFixed(2) : '0.00'
       }));
     }
+
     // --- Quiz Table ---
     function getQuizTable(quizData) {
       return quizData.filter(q => q).map(q => ({
@@ -88,23 +90,26 @@ exports.generateStudentReport = async (req, res) => {
     const marksTable = getMarksTable(marks);
     const quizTable = getQuizTable(quizData);
 
-    // Save report in DB with all student details
-    await Report.create({
-      studentId: student._id,
-      type: reportType,
-      data: {
-        name: student.userId.name,
-        email: student.userId.email,
-        idNumber: student.idNumber, 
-        section: student.section,
-        year: student.year,
-        semester: semester,
-        attendance: attendanceTable,
-        marks: marksTable,
-        quizzes: quizTable
-      },
-      generatedBy: req.user ? req.user._id : null
-    });
+    // Only create a report if explicitly requested by the user (not for dashboard/stats)
+    // Add a guard: only create if req.query.create === 'true' or method is POST
+    if ((req.method === 'POST') || req.query.create === 'true') {
+      await Report.create({
+        studentId: student._id,
+        type: reportType,
+        data: {
+          name: student.userId.name,
+          email: student.userId.email,
+          idNumber: student.idNumber, 
+          section: student.section,
+          year: student.year,
+          semester: semester,
+          attendance: attendanceTable,
+          marks: marksTable,
+          quizzes: quizTable
+        },
+        generatedBy: req.user.id
+      });
+    }
 
     // --- Excel ---
     if (req.query.format === 'xlsx') {
@@ -154,6 +159,7 @@ exports.generateStudentReport = async (req, res) => {
     }
     // --- CSV ---
     if (req.query.format === 'csv') {
+      // Improved CSV: flatten nested objects/arrays for readability
       let csv = '';
       csv += `Name,"${student.userId.name}"
 `;
@@ -287,7 +293,7 @@ exports.generateClassReport = async (req, res) => {
     await Report.create({
       type: reportType,
       data: { section, year, semester, students: reportRows },
-      generatedBy: req.user ? req.user._id : null
+      generatedBy: req.user.id
     });
     // Generate file for download
     if (format === 'xlsx') {
@@ -474,28 +480,49 @@ exports.downloadReport = async (req, res) => {
       let csv = '';
       if (report.type === 'class' && Array.isArray(report.data.students)) {
         // Class report: header
-        csv += 'Name,Email,Attendance,Marks,Quizzes\n';
+        csv += 'Name,Email,ID Number,Section,Year,Semester,Subject,Assessment Type,Assignment Name,Max Marks,Marks,Marks %,Attendance Subject,Total Classes,Presents,Attendance %,Quiz Title,Quiz Subject,Quiz Score,Quiz Submitted At\n';
         for (const row of report.data.students) {
-          const attendanceStr = row.attendance ? `${row.attendance.presents}/${row.attendance.total} (${row.attendance.percent?.toFixed(2) || 0}%)` : '-';
-          const marksStr = Array.isArray(row.marks) && row.marks.length > 0 && row.marks[0].subject ? row.marks.map(m => `${m.subject||''} (${m.assessmentType||''}): ${m.score||0}/${m.maxScore||0}`).join('; ') : '-';
-          const quizStr = Array.isArray(row.quizzes) && row.quizzes.length > 0 && row.quizzes[0].quizTitle ? row.quizzes.map(q => `${q.quizTitle||''} (${q.subject||''}) - Score: ${q.score||0}${q.submittedAt ? ' at ' + new Date(q.submittedAt).toLocaleString() : ''}`).join('; ') : '-';
-          csv += `"${row.name||''}","${row.email||''}","${attendanceStr}","${marksStr}","${quizStr}"\n`;
+          // For each student, generate a row for each marks/attendance/quiz
+          const marksArr = Array.isArray(row.marks) ? row.marks : [];
+          const attendanceArr = Array.isArray(row.attendance) ? row.attendance : [];
+          const quizzesArr = Array.isArray(row.quizzes) ? row.quizzes : [];
+          const maxRows = Math.max(1, marksArr.length, attendanceArr.length, quizzesArr.length);
+          for (let i = 0; i < maxRows; i++) {
+            const m = marksArr[i] || {};
+            const a = attendanceArr[i] || {};
+            const q = quizzesArr[i] || {};
+            csv += `"${row.name||''}","${row.email||''}","${row.idNumber||''}","${row.section||''}","${row.year||''}","${row.semester||''}",` +
+              `"${m.subject||''}","${m.assessmentType||''}","${m.assignmentName||''}","${m.maxScore||''}","${m.score||''}","${m.percent||''}",` +
+              `"${a.subject||''}","${a.total||''}","${a.presents||''}","${a.percent||''}",` +
+              `"${q.quizTitle||''}","${q.subject||''}","${q.score||''}","${q.submittedAt||''}"\n`;
+
+          }
         }
       } else {
-        // Individual report or unknown: flatten all keys
-        const keys = Object.keys(report.data || {});
-        csv += keys.join(',') + '\n';
-        const row = {};
-        for (const k of keys) {
-          let v = report.data[k];
-          if (Array.isArray(v)) {
-            v = v.map(item => typeof item === 'object' ? JSON.stringify(item) : item).join('; ');
-          } else if (typeof v === 'object' && v !== null) {
-            v = Object.entries(v).map(([kk, vv]) => kk+':'+vv).join('; ');
-          }
-          row[k] = v;
+        // Individual report: expand attendance, marks, quizzes as separate tables
+        const data = report.data || {};
+        csv += 'Name,Email,ID Number,Section,Year,Semester\n';
+        csv += `"${data.name||''}","${data.email||''}","${data.idNumber||''}","${data.section||''}","${data.year||''}","${data.semester||''}"\n\n`;
+        if (Array.isArray(data.attendance) && data.attendance.length) {
+          csv += 'Attendance Report\nSubject,Total Classes,Presents,Attendance %\n';
+          data.attendance.forEach(r => {
+            csv += `"${r.subject||''}","${r.total||''}","${r.presents||''}","${r.percent||''}"\n`;
+          });
+          csv += '\n';
         }
-        csv += Object.values(row).map(v => `"${v}"`).join(',') + '\n';
+        if (Array.isArray(data.marks) && data.marks.length) {
+          csv += 'Marks Report\nSubject,Assessment Type,Assignment Name,Max Marks,Marks,Marks %\n';
+          data.marks.forEach(r => {
+            csv += `"${r.subject||''}","${r.assessmentType||''}","${r.assignmentName||''}","${r.maxScore||''}","${r.score||''}","${r.percent||''}"\n`;
+          });
+          csv += '\n';
+        }
+        if (Array.isArray(data.quizzes) && data.quizzes.length) {
+          csv += 'Quiz Report\nQuiz Title,Quiz Subject,Quiz Score,Quiz Submitted At\n';
+          data.quizzes.forEach(r => {
+            csv += `"${r.quizTitle||''}","${r.subject||''}","${r.score||''}","${r.submittedAt||''}"\n`;
+          });
+        }
       }
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename=report_${id}.csv`);
@@ -598,9 +625,52 @@ exports.downloadReport = async (req, res) => {
 // Get reports for the authenticated student
 exports.getMyReports = async (req, res) => {
   try {
+    // Prefer studentId from token, fallback to user id
     const studentId = req.user.studentId || req.user.id;
-    const reports = await Report.find({ studentId });
+    if (!studentId) return res.status(400).json({ message: 'No studentId found in token.' });
+    const reports = await Report.find({ studentId }).sort({ createdAt: -1 });
     res.json(reports);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Get reports generated BY the authenticated student
+exports.getReportsGeneratedByMe = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    // Only fetch reports where generatedBy matches the logged-in user
+    const reports = await Report.find({ generatedBy: userId }).sort({ createdAt: -1 });
+    res.json(reports);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Student: Delete a report by ID (only if owned/generated by them)
+exports.deleteMyReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    // Only allow deleting if the report was generated by this user
+    const report = await Report.findOne({ _id: id, generatedBy: userId });
+    if (!report) return res.status(404).json({ message: 'Report not found or not authorized' });
+    await report.deleteOne();
+    res.json({ success: true, message: 'Report deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Student: Bulk delete reports by IDs (only if owned/generated by them)
+exports.bulkDeleteMyReports = async (req, res) => {
+  try {
+    let ids = req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: 'No report IDs provided' });
+    const userId = req.user.id;
+    // Only delete reports generated by this user
+    const result = await Report.deleteMany({ _id: { $in: ids }, generatedBy: userId });
+    res.json({ success: true, deletedCount: result.deletedCount });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -611,13 +681,13 @@ function formatValue(val) {
   if (Array.isArray(val)) {
     if (val.length > 0 && typeof val[0] === 'object') {
       // Array of objects
-      return val.map(item => Object.entries(item).map(([kk, vv]) => kk + ':' + vv).join('; ')).join(' | ');
+      return val.map(item => Object.entries(item).map(([kk, vv]) => kk+':'+vv).join('; ')).join(' | ');
     } else {
       // Array of primitives
       return val.join(', ');
     }
   } else if (typeof val === 'object' && val !== null) {
-    return Object.entries(val).map(([kk, vv]) => kk + ':' + vv).join('; ');
+    return Object.entries(val).map(([kk, vv]) => kk+':'+vv).join('; ');
   } else {
     return val;
   }

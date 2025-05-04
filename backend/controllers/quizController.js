@@ -2,6 +2,27 @@ const Quiz = require('../models/Quiz');
 const QuizAttempt = require('../models/QuizAttempt');
 const Student = require('../models/Student');
 
+// Admin: Create a quiz
+exports.createQuiz = async (req, res) => {
+  try {
+    const { title, subject, section, year, semester, questions, deadline } = req.body;
+    const quiz = new Quiz({
+      title,
+      subject,
+      section,
+      year,
+      semester,
+      questions,
+      createdBy: req.user.id,
+      deadline
+    });
+    await quiz.save();
+    res.status(201).json({ message: 'Quiz created', quiz });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 // Admin: Update a quiz
 exports.updateQuiz = async (req, res) => {
   try {
@@ -29,27 +50,6 @@ exports.deleteQuiz = async (req, res) => {
   }
 };
 
-// Admin: Create a quiz
-exports.createQuiz = async (req, res) => {
-  try {
-    const { title, subject, section, year, semester, questions, deadline } = req.body;
-    const quiz = new Quiz({
-      title,
-      subject,
-      section,
-      year,
-      semester,
-      questions,
-      createdBy: req.user.id,
-      deadline
-    });
-    await quiz.save();
-    res.status(201).json({ message: 'Quiz created', quiz });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
-};
-
 // Get all quizzes for a section/year/semester/subject
 exports.getQuizzes = async (req, res) => {
   try {
@@ -70,28 +70,45 @@ exports.getQuizzes = async (req, res) => {
 // Student: Submit quiz attempt
 exports.submitQuiz = async (req, res) => {
   try {
-    // Accept quizId from either body or URL param
     const quizId = req.body.quizId || req.params.id;
     const { answers } = req.body;
     const quiz = await Quiz.findById(quizId);
     if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
-    // Evaluate score
     let score = 0;
+    let correctCount = 0;
+    let incorrectCount = 0;
     quiz.questions.forEach((q, idx) => {
       const ans = answers.find(a => String(a.questionId) === String(q._id));
       if (ans && ans.selectedOption === q.correctOption) {
         score += q.marks;
+        correctCount++;
+      } else if (ans) {
+        incorrectCount++;
       }
     });
+    const totalMarks = quiz.questions.reduce((sum, q) => sum + (q.marks || 1), 0);
+    // Prevent duplicate attempts
+    const studentId = req.user.studentId || req.user.id;
+    const existingAttempt = await QuizAttempt.findOne({ quizId, studentId });
+    if (existingAttempt) {
+      return res.status(400).json({ message: 'You have already submitted this quiz.' });
+    }
     const attempt = new QuizAttempt({
       quizId,
-      studentId: req.user.studentId || req.user.id,
+      studentId,
       answers,
       score,
       evaluated: true
     });
     await attempt.save();
-    res.status(201).json({ message: 'Quiz submitted', score });
+    res.status(201).json({ 
+      message: 'Quiz submitted', 
+      score, 
+      totalMarks, 
+      correctCount, 
+      incorrectCount,
+      attemptId: attempt._id
+    });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -100,8 +117,8 @@ exports.submitQuiz = async (req, res) => {
 // Get a student's quiz attempts
 exports.getStudentAttempts = async (req, res) => {
   try {
-    const { quizId } = req.query;
     const studentId = req.user.studentId || req.user.id;
+    const { quizId } = req.query;
     const filter = { studentId };
     if (quizId) filter.quizId = quizId;
     const attempts = await QuizAttempt.find(filter);
@@ -114,7 +131,6 @@ exports.getStudentAttempts = async (req, res) => {
 // Get available quizzes for the authenticated student
 exports.getAvailableQuizzes = async (req, res) => {
   try {
-    // Fetch the student's profile to get section/year/semester
     const studentId = req.user.studentId || req.user.id;
     const student = await Student.findById(studentId);
     if (!student) return res.status(404).json({ message: 'Student profile not found' });
@@ -131,36 +147,23 @@ exports.getAvailableQuizzes = async (req, res) => {
   }
 };
 
-// Map student year/semester to Quiz model format
-function normalizeYear(year) {
-  if (typeof year === 'string' && year.startsWith('E-')) return year;
-  if (typeof year === 'string' && year.length === 2 && year.startsWith('E')) return year;
-  if (typeof year === 'string' && year.length === 2 && year[0] === 'E' && year[1] === '-') return 'E-' + year[1];
-  if (typeof year === 'string' && year.length === 2 && year[0] === 'E') return 'E-' + year[1];
-  return year;
-}
-
-function normalizeSemester(sem) {
-  if (sem === 'sem1' || sem === '1') return 'sem1';
-  if (sem === 'sem2' || sem === '2') return 'sem2';
-  return sem;
-}
-
 // Student: Get all quizzes for their section/year/semester/subject with status
 exports.getAllQuizzesWithStatus = async (req, res) => {
   try {
-    const studentId = req.user.studentId || req.user.id;
+    // Support both /:studentId and /me endpoints
+    let studentId = req.params.studentId;
+    if (!studentId || studentId === 'me') {
+      studentId = req.user.studentId || req.user.id;
+    }
     const student = await Student.findById(studentId);
     if (!student) return res.status(404).json({ message: 'Student profile not found' });
-
-    // Normalize year/semester to match Quiz model
     const filter = {
-      section: student.section,
-      year: normalizeYear(student.year),
-      semester: normalizeSemester(student.semester)
+      section: normalizeSection(student.section),
+      year: normalizeYear(student.year)
     };
+    const semester = normalizeSemester(student.semester);
+    if (semester) filter.semester = semester;
     const quizzes = await Quiz.find(filter).lean();
-    // Find all attempts by this student
     const attempts = await QuizAttempt.find({ studentId }).lean();
     const attemptMap = {};
     attempts.forEach(a => { attemptMap[String(a.quizId)] = a; });
@@ -184,3 +187,60 @@ exports.getAllQuizzesWithStatus = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
+
+// Student: Get quiz review data (questions + submitted answers + correctness)
+exports.getQuizReview = async (req, res) => {
+  try {
+    const quizId = req.params.quizId || req.query.quizId;
+    const studentId = req.user.studentId || req.user.id;
+    const quiz = await Quiz.findById(quizId).lean();
+    const attempt = await QuizAttempt.findOne({ quizId, studentId }).lean();
+    if (!quiz || !attempt) return res.status(404).json({ message: 'Not found' });
+    // Map answers for quick lookup
+    const answerMap = {};
+    (attempt.answers || []).forEach(a => { answerMap[String(a.questionId)] = a.selectedOption; });
+    const questions = quiz.questions.map(q => ({
+  ...q,
+  text: q.text || q.questionText || '',
+  submittedOption: answerMap[String(q._id)] ?? null,
+  isCorrect: answerMap[String(q._id)] === q.correctOption
+}));
+    res.json({
+      quizId: quiz._id,
+      title: quiz.title,
+      questions,
+      score: attempt.score,
+      totalMarks: questions.reduce((sum, q) => sum + (q.marks || 1), 0),
+      correctCount: questions.filter(q => q.isCorrect).length,
+      incorrectCount: questions.filter(q => q.submittedOption !== null && !q.isCorrect).length
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Helpers
+function normalizeYear(year) {
+  if (typeof year === 'string') {
+    // Accept 'E-1', 'E-2', 'E-3', 'E-4' or 'E1', 'E2', etc.
+    if (/^E-\d$/.test(year)) return 'E' + year[2]; // 'E-1' => 'E1'
+    if (/^E\d$/.test(year)) return year; // 'E1', 'E2', etc.
+  }
+  return year;
+}
+
+function normalizeSection(section) {
+  // Ensure section is in format 'CSE-01', 'CSE-02', etc.
+  if (!section) return section;
+  const match = section.match(/cse[-_ ]?(\d+)/i);
+  if (match) {
+    return `CSE-${match[1].padStart(2, '0')}`;
+  }
+  return section;
+}
+
+function normalizeSemester(sem) {
+  if (sem === 'sem1' || sem === '1') return 'sem1';
+  if (sem === 'sem2' || sem === '2') return 'sem2';
+  return sem;
+}

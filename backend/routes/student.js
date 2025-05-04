@@ -7,6 +7,8 @@ const auth = require('../middleware/auth');
 router.post('/', auth('admin'), studentController.createStudent);
 router.get('/', auth(['admin']), studentController.getStudents);
 router.get('/my', auth(['admin', 'student']), studentController.getMyProfile);
+// Student updates their semester
+router.put('/semester', auth(['student']), studentController.updateSemester);
 router.get('/:studentId', auth(['admin', 'student']), studentController.getStudentProfile);
 router.put('/:id', auth('admin'), studentController.updateStudent);
 

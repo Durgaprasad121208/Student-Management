@@ -139,9 +139,8 @@ exports.getStudentAttendance = async (req, res) => {
     const presents = records.filter(r => r.status === 'Present').length;
     const total = records.length;
     const percentage = total > 0 ? (presents / total) * 100 : 0;
-    // Only return present records in the response
-    const presentRecords = records.filter(r => r.status === 'Present');
-    res.json({ presents, total, percentage, records: presentRecords });
+    // Return all records (Present and Absent)
+    res.json({ presents, total, percentage, records });
   } catch (err) {
     // Log the error for debugging
     console.error('getStudentAttendance error:', err);

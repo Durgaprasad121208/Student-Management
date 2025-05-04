@@ -17,7 +17,12 @@ router.get('/attempts/:studentId', auth(['admin', 'student']), quizController.ge
 router.get('/available/:studentId', auth(['admin', 'student']), quizController.getAvailableQuizzes);
 // Student: Get all quizzes for their section/year/semester/subject with status
 router.get('/all-with-status/:studentId', auth(['student']), quizController.getAllQuizzesWithStatus);
+// Student: Get all quizzes for their section/year/semester/subject with status (current user)
+router.get('/all-with-status/me', auth(['student']), quizController.getAllQuizzesWithStatus);
 // Student: Submit quiz attempt
 router.post('/:id/submit', auth(['student']), quizController.submitQuiz);
+
+// Student: Get quiz review data
+router.get('/review/:quizId', auth(['student']), quizController.getQuizReview);
 
 module.exports = router;

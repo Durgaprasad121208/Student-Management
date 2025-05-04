@@ -27,6 +27,7 @@ exports.getMyProfile = async (req, res) => {
       email: student.userId && student.userId.email,
       section: student.section,
       year: student.year,
+      semester: student.semester,
       rollNo: student.rollNo,
       idNumber: student.idNumber,
       phone: student.phone,
@@ -204,6 +205,7 @@ exports.getStudentProfile = async (req, res) => {
       email: student.userId && student.userId.email,
       section: student.section,
       year: student.year,
+      semester: student.semester,
       rollNo: student.rollNo,
       idNumber: student.idNumber,
       phone: student.phone,
@@ -213,4 +215,34 @@ exports.getStudentProfile = async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message, stack: err.stack, received: req.body });
   }
+};
+
+// Student: Update only the semester
+exports.updateSemester = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { semester } = req.body;
+    if (!semester) return res.status(400).json({ message: 'Semester is required.' });
+    const student = await Student.findOneAndUpdate(
+      { userId },
+      { semester },
+      { new: true }
+    );
+    if (!student) return res.status(404).json({ message: 'Student not found.' });
+    res.json({ semester: student.semester });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Export all functions
+module.exports = {
+  getMyProfile: exports.getMyProfile,
+  createStudent: exports.createStudent,
+  getStudents: exports.getStudents,
+  updateStudent: exports.updateStudent,
+  deleteStudent: exports.deleteStudent,
+  bulkDeleteStudents: exports.bulkDeleteStudents,
+  getStudentProfile: exports.getStudentProfile,
+  updateSemester: exports.updateSemester
 };

@@ -16,7 +16,11 @@ export async function apiRequest(endpoint, options = {}) {
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   try {
-    const response = await fetch(url, { ...options, headers });
+    let fetchOptions = { ...options, headers };
+    if (fetchOptions.body && typeof fetchOptions.body === 'object' && !(fetchOptions.body instanceof FormData)) {
+      fetchOptions.body = JSON.stringify(fetchOptions.body);
+    }
+    const response = await fetch(url, fetchOptions);
     let data, text;
     try {
       data = await response.clone().json();
@@ -28,16 +32,19 @@ export async function apiRequest(endpoint, options = {}) {
       }
     }
     if (!response.ok) {
-      // Print the error to the browser console for debugging
-      console.error('[API ERROR]', {
-        url,
-        status: response.status,
-        statusText: response.statusText,
-        data,
-        text,
-        options
-      });
-      showToast((data && data.message) || text || response.statusText || 'API Error', 'error');
+      // Suppress toast/console for expected fallback error
+      const isExpectedStudentIdError = response.status === 400 && data && data.message && data.message.toLowerCase().includes('studentid');
+      if (!isExpectedStudentIdError) {
+        console.error('[API ERROR]', {
+          url,
+          status: response.status,
+          statusText: response.statusText,
+          data,
+          text,
+          options
+        });
+        showToast((data && data.message) || text || response.statusText || 'API Error', 'error');
+      }
       const error = new Error((data && data.message) || text || response.statusText || 'API Error');
       error.status = response.status;
       error.data = data;

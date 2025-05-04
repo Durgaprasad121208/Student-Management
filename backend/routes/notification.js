@@ -14,4 +14,7 @@ router.delete('/:id', auth('admin'), notificationController.deleteNotification);
 // Bulk delete notifications (admin)
 router.delete('/bulk', auth('admin'), notificationController.bulkDeleteNotifications);
 
+// Mark all notifications as read for the authenticated user
+router.patch('/read-all', auth(['admin', 'student']), notificationController.markAllAsRead);
+
 module.exports = router;

@@ -121,6 +121,24 @@ export default function StudentAttendance() {
     );
   }
 
+  // Show overall percentage when viewing all subjects
+  function OverallPercentage({ summary }) {
+    const filtered = summary.filter(s => s.total > 0);
+    const totalClasses = filtered.reduce((sum, s) => sum + s.total, 0);
+    const totalPresents = filtered.reduce((sum, s) => sum + s.presents, 0);
+    const totalAbsents = filtered.reduce((sum, s) => sum + (s.total - s.presents), 0);
+    if (totalClasses === 0) return null;
+    const overall = (totalPresents / totalClasses) * 100;
+    return (
+      <div className="mb-4 flex flex-wrap gap-8 items-center justify-start border rounded bg-gray-50 p-3">
+        <div><span className="font-semibold">Total Classes:</span> {totalClasses}</div>
+        <div><span className="font-semibold">Present:</span> {totalPresents}</div>
+        <div><span className="font-semibold">Absent:</span> {totalAbsents}</div>
+        <div><span className="font-semibold">Overall Attendance:</span> <span className={overall >= 75 ? 'text-green-600' : 'text-red-600'}>{overall.toFixed(1)}%</span></div>
+      </div>
+    );
+  }
+
   // Update summary table to show absents and not show subjects not marked
   function SummaryTable() {
     if (summary.length === 0) return (
@@ -143,7 +161,7 @@ export default function StudentAttendance() {
               <td className="p-2 text-center">{s.subject}</td>
               <td className="p-2 text-center">{s.total}</td>
               <td className="p-2 text-center">{s.presents}</td>
-              <td className="p-2 text-center">{s.absents}</td>
+              <td className="p-2 text-center">{s.total - s.presents}</td>
               <td className="p-2 text-center">
                 <span className={s.percentage >= 75 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
                   {s.percentage.toFixed(1)}%
@@ -170,7 +188,7 @@ export default function StudentAttendance() {
           <option value="sem2">Semester 2</option>
         </select>
         <select value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)} className="p-2 border rounded min-w-[140px]">
-          <option value="">Select Subject</option>
+          <option value="">All Subjects</option>
           {subjects.map(s => <option key={s._id} value={s.name}>{s.name}</option>)}
         </select>
         <button onClick={fetchAttendance} className="bg-primary text-white px-4 py-2 rounded" type="button">Show Attendance</button>
@@ -183,7 +201,11 @@ export default function StudentAttendance() {
       ) : (!semesterFilter) ? (
         <div className="text-gray-600">Please select a Semester to view your attendance.</div>
       ) : (!subjectFilter) ? (
-        <div className="text-gray-600">Please select a Subject to view your attendance.</div>
+        <>
+          {/* If All Subjects is selected, show the overall percentage and summary table */}
+          <OverallPercentage summary={summary} />
+          <SummaryTable />
+        </>
       ) : !attendance.records || attendance.records.length === 0 ? (
         <>
           <div className="text-red-600 font-semibold mb-2">
