@@ -9,5 +9,7 @@ const upload = multer({ dest: 'uploads/' });
 router.post('/students', auth('admin'), upload.single('file'), importController.importStudents);
 // Bulk import attendance from Excel (Admin only)
 router.post('/attendance', auth('admin'), upload.single('file'), importController.importAttendance);
+// Bulk import marks from Excel (Admin only)
+router.post('/marks', auth('admin'), upload.single('file'), importController.importMarks);
 
 module.exports = router;

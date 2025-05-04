@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const Attendance = require('../models/Attendance');
 const Subject = require('../models/Subject');
+const Marks = require('../models/Marks');
 
 // Bulk import students from Excel
 exports.importStudents = async (req, res) => {
@@ -139,6 +140,171 @@ function normalizeYear(year) {
 function normalizeSection(section) {
   return section ? String(section).trim().toUpperCase() : null;
 }
+
+// Bulk import marks from Excel
+exports.importMarks = async (req, res) => {
+  // Step 1: Check for confirmation flag (from body or query)
+  let confirmUpdate = false;
+  if (req.body && (req.body.confirmUpdate === 'true' || req.body.confirmUpdate === true || req.body.confirmUpdate === 1 || req.body.confirmUpdate === '1')) {
+    confirmUpdate = true;
+  } else if (req.query && (req.query.confirmUpdate === 'true' || req.query.confirmUpdate === true || req.query.confirmUpdate === 1 || req.query.confirmUpdate === '1')) {
+    confirmUpdate = true;
+  }
+  console.log('[importMarks] confirmUpdate:', confirmUpdate, 'body:', req.body.confirmUpdate, 'query:', req.query.confirmUpdate);
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+    const workbook = xlsx.readFile(req.file.path);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = xlsx.utils.sheet_to_json(sheet);
+
+    let created = 0, updated = 0, skipped = 0;
+    const errors = [], dryRunCreate = [], dryRunUpdate = [], dryRunNoChange = [], notifications = [];
+    const validAssessmentTypes = ['AT 1','AT 2','AT 3','AT 4','MID 1','MID 2','MID 3','Others'];
+
+    for (const [index, row] of rows.entries()) {
+      try {
+        const {
+          'ID Number': idNumber,
+          Subject: subject,
+          'Assessment Type': assessmentType,
+          Score: score,
+          'Max Score': maxScore,
+          Date: date,
+          Semester: semester,
+          Year: year,
+          Section: section
+        } = row;
+        if (!idNumber || !subject || !assessmentType || score == null || maxScore == null || !date || !semester || !year || !section) {
+          skipped++;
+          errors.push({ row: index + 2, reason: 'Missing required fields' });
+          continue;
+        }
+        if (!validAssessmentTypes.includes(assessmentType)) {
+          skipped++;
+          errors.push({ row: index + 2, reason: `Invalid assessment type: ${assessmentType}` });
+          continue;
+        }
+        if (!['sem1', 'sem2'].includes(semester)) {
+          skipped++;
+          errors.push({ row: index + 2, reason: 'Semester must be sem1 or sem2' });
+          continue;
+        }
+        // Find student by ID Number
+        const student = await Student.findOne({ idNumber });
+        if (!student) {
+          skipped++;
+          errors.push({ row: index + 2, reason: `Student with ID Number '${idNumber}' not found` });
+          continue;
+        }
+        // Validate subject exists (by name or code)
+        const subjectDoc = await Subject.findOne({ $or: [ { name: subject }, { code: subject } ] });
+        if (!subjectDoc) {
+          skipped++;
+          errors.push({ row: index + 2, reason: `Subject '${subject}' not found` });
+          continue;
+        }
+        // Find existing marks
+        const filter = {
+          studentId: student._id,
+          subject: subjectDoc.name,
+          assessmentType,
+          semester
+        };
+        const update = {
+          studentId: student._id,
+          subject: subjectDoc.name,
+          assessmentType,
+          score,
+          maxScore,
+          date,
+          semester,
+          year,
+          section
+        };
+        const preExisting = await Marks.findOne(filter);
+        if (!confirmUpdate) {
+          // Dry run: preview changes
+          if (preExisting) {
+            if (
+              preExisting.score !== score ||
+              preExisting.maxScore !== maxScore ||
+              preExisting.date !== date ||
+              preExisting.year !== year ||
+              preExisting.section !== section
+            ) {
+              dryRunUpdate.push({ row: index + 2, idNumber, changes: {
+                from: {
+                  score: preExisting.score, maxScore: preExisting.maxScore, date: preExisting.date, year: preExisting.year, section: preExisting.section
+                },
+                to: { score, maxScore, date, year, section }
+              }});
+            } else {
+              dryRunNoChange.push({ row: index + 2, idNumber });
+            }
+          } else {
+            dryRunCreate.push({
+              studentId: student._id,
+              idNumber,
+              subject: subjectDoc.name,
+              assessmentType,
+              score,
+              maxScore,
+              date,
+              semester,
+              year,
+              section
+            });
+          }
+        } else {
+          // Actual insert/update
+          if (preExisting) {
+            preExisting.score = score;
+            preExisting.maxScore = maxScore;
+            preExisting.date = date;
+            preExisting.year = year;
+            preExisting.section = section;
+            await preExisting.save();
+            updated++;
+            notifications.push({ row: index + 2, message: 'Existing marks updated.' });
+          } else {
+            await Marks.create(update);
+            created++;
+          }
+        }
+      } catch (err) {
+        skipped++;
+        errors.push({ row: index + 2, reason: err.message });
+      }
+    }
+    fs.unlinkSync(req.file.path);
+    if (!confirmUpdate) {
+      return res.json({
+        status: 'dryrun',
+        message: 'Preview only. No records inserted yet.',
+        toCreate: dryRunCreate,
+        toUpdate: dryRunUpdate,
+        noChange: dryRunNoChange,
+        skipped,
+        errors
+      });
+    }
+    res.json({
+      status: 'success',
+      message: `Marks import complete: ${created} created, ${updated} updated, ${skipped} skipped.`,
+      created,
+      updated,
+      skipped,
+      errors,
+      notifications
+    });
+  } catch (err) {
+    console.error('❌ Server error:', err.message);
+    res.status(500).json({ status: 'error', message: 'Server error', error: err.message });
+  }
+};
 
 // Bulk import attendance from Excel
 exports.importAttendance = async (req, res) => {

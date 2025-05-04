@@ -1,8 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../../api';
 import { EditIcon, TrashIcon } from './_Icon';
+import MarksBulkImport from './MarksBulkImport';
 
 export default function MarksManage() {
+  // Handler to refresh section marks after bulk import
+  const handleBulkImportSuccess = () => {
+    // Optionally refresh section marks or show a message
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: 'Marks data refreshed after bulk import.', type: 'info' } }));
+    }
+    // You can also trigger a state update or data fetch here if needed
+  }
   const [students, setStudents] = useState([]);
   const [marks, setMarks] = useState({});
   const [loading, setLoading] = useState(false);
@@ -70,6 +79,13 @@ export default function MarksManage() {
       setSubjects([]);
     }
   }, [year, semester]);
+
+  // Fetch section marks when all filters are selected
+  useEffect(() => {
+    if (filterSection && filterYear && filterSemester && filterSubject && filterAssessmentType) {
+      fetchSectionMarks();
+    }
+  }, [filterSection, filterYear, filterSemester, filterSubject, filterAssessmentType]);
 
   useEffect(() => {
     if (filterYear && filterSemester) {
@@ -215,6 +231,11 @@ export default function MarksManage() {
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
+      {/* Bulk Marks Import UI */}
+      <div className="mb-8">
+        <MarksBulkImport onSuccess={handleBulkImportSuccess} />
+      </div>
+
       <h2 className="text-2xl font-bold mb-4">Marks Management</h2>
       <form className="mb-6 flex flex-wrap gap-4 items-end" onSubmit={handleSubmit}>
         <select value={section} onChange={e => setSection(e.target.value)} className="p-2 border rounded" required>
@@ -246,6 +267,7 @@ export default function MarksManage() {
         </select>
         <input value={maxScore} onChange={e => setMaxScore(e.target.value)} placeholder="Max Score" className="p-2 border rounded" required type="number" />
       </form>
+
       {msg && <div className="mb-2 text-green-600 font-semibold bg-green-100 border border-green-400 rounded px-4 py-2 animate-pulse">{msg}</div>}
       {error && <div className="mb-2 text-red-600">{error}</div>}
       {warning && <div className="mb-2 text-yellow-700 font-semibold bg-yellow-100 border border-yellow-400 rounded px-4 py-2 animate-pulse">{warning}</div>}
@@ -314,104 +336,77 @@ export default function MarksManage() {
             <option value="MID 1">MID 1</option>
             <option value="MID 2">MID 2</option>
             <option value="MID 3">MID 3</option>
-            <option value="Others">Others</option>
-          </select>
-          <button className="bg-primary text-white px-4 py-2 rounded" onClick={fetchSectionMarks} type="button">Filter</button>
-        </div>
-        {marksTableError && <div className="mb-2 text-red-600">{marksTableError}</div>}
-        {marksLoading ? <div>Loading marks...</div> : (
-          sectionMarks.length > 0 ? (
-            <div>
-              <div className="flex items-center mb-2">
-                <button
-                  className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 mr-2 disabled:opacity-50"
-                  onClick={handleBulkDelete}
-                  disabled={selectedMarkIds.length === 0}
-                >
-                  Delete Selected
-                </button>
-                <span className="text-gray-600 text-sm">{selectedMarkIds.length} selected</span>
-              </div>
-              <table className="w-full border mt-2">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="p-2 text-center">
-                      <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
-                    </th>
-                    <th className="p-2 text-center">Student Name</th>
-                    <th className="p-2 text-center">ID Number</th>
-                    <th className="p-2 text-center">Roll No</th>
-                    <th className="p-2 text-center">Subject</th>
-                    <th className="p-2 text-center">Assessment Type</th>
-                    <th className="p-2 text-center">Score</th>
-                    <th className="p-2 text-center">Max Score</th>
-                    <th className="p-2 text-center">Semester</th>
-                    <th className="p-2 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sectionMarks.map(mark => (
-                    <tr key={mark._id} className="border-t">
-                      <td className="p-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedMarkIds.includes(mark._id)}
-                          onChange={() => toggleSelectMark(mark._id)}
-                        />
-                      </td>
-                      <td className="p-2 text-center">{
-                        mark.studentId?.userId?.name ||
-                        mark.studentId?.name ||
-                        mark.studentId?.rollNo ||
-                        mark.studentId?.idNumber ||
-                        '-'
-                      }</td>
-                      <td className="p-2 text-center">{mark.studentId?.idNumber || '-'}</td>
-                      <td className="p-2 text-center">{mark.studentId?.rollNo || '-'}</td>
-                      <td className="p-2 text-center">{mark.subject}</td>
-                      <td className="p-2 text-center">{mark.assessmentType}</td>
-                      <td className="p-2 text-center">
-                        {editRowId === mark._id ? (
-                          <input type="number" className="border rounded p-1 w-20 text-center" value={editScore} onChange={e => setEditScore(e.target.value)} />
-                        ) : mark.score}
-                      </td>
-                      <td className="p-2 text-center">
-                        {editRowId === mark._id ? (
-                          <input type="number" className="border rounded p-1 w-20 text-center" value={editMaxScore} onChange={e => setEditMaxScore(e.target.value)} />
-                        ) : mark.maxScore}
-                      </td>
-                      <td className="p-2 text-center">{mark.semester}</td>
-                      <td className="p-2 text-center flex items-center justify-center gap-2">
-                        {editRowId === mark._id ? (
-                          <>
-                            <button title="Save" className="text-green-600 font-semibold mr-1" onClick={() => handleEditSave(mark)}>
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                            </button>
-                            <button title="Cancel" className="text-gray-600 font-semibold" onClick={() => setEditRowId(null)}>
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button title="Edit" className="text-blue-600 font-semibold mr-1" onClick={() => handleEdit(mark)}>
-                              <EditIcon />
-                            </button>
-                            <button title="Delete" className="text-red-600 font-semibold" onClick={() => handleDelete(mark._id)}>
-                              <TrashIcon />
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            (filterSection && filterYear && filterSemester) && <div>No marks found for this filter.</div>
-          )
+            </select>
+         </div>
+         {/* Section Marks Table */}
+        {marksLoading ? (
+          <div>Loading marks...</div>
+        ) : marksTableError ? (
+          <div className="text-red-600">{marksTableError}</div>
+        ) : sectionMarks.length > 0 ? (
+          <>
+          <table className="w-full border mt-4">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="p-2 text-center"><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} /></th>
+<th className="p-2 text-center">Semester</th>
+<th className="p-2 text-center">Subject</th>
+<th className="p-2 text-center">ID Number</th>
+<th className="p-2 text-center">Roll No</th>
+<th className="p-2 text-center">Assessment Type</th>
+<th className="p-2 text-center">Score</th>
+<th className="p-2 text-center">Max Score</th>
+<th className="p-2 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sectionMarks.map(mark => (
+                <tr key={mark._id} className="border-t">
+  <td className="p-2 text-center"><input type="checkbox" checked={selectedMarkIds.includes(mark._id)} onChange={() => toggleSelectMark(mark._id)} /></td>
+  <td className="p-2 text-center">{mark.semester || '-'}</td>
+  <td className="p-2 text-center">{mark.subject || '-'}</td>
+  <td className="p-2 text-center">{mark.studentId?.idNumber || '-'}</td>
+  <td className="p-2 text-center">{mark.studentId?.rollNo || '-'}</td>
+  <td className="p-2 text-center">{mark.assessmentType}</td>
+  <td className="p-2 text-center">
+    {editRowId === mark._id ? (
+      <input type="number" className="border rounded p-1 w-16 text-center" value={editScore} onChange={e => setEditScore(e.target.value)} />
+    ) : mark.score}
+  </td>
+  <td className="p-2 text-center">
+    {editRowId === mark._id ? (
+      <input type="number" className="border rounded p-1 w-16 text-center" value={editMaxScore} onChange={e => setEditMaxScore(e.target.value)} />
+    ) : mark.maxScore}
+  </td>
+  <td className="p-2 text-center">
+    <div className="flex items-center justify-center gap-2">
+      {editRowId === mark._id ? (
+        <>
+          <button title="Save" className="text-green-600 font-semibold mr-1" onClick={() => handleEditSave(mark)}>Save</button>
+          <button title="Cancel" className="text-gray-600 font-semibold" onClick={() => setEditRowId(null)}>Cancel</button>
+        </>
+      ) : (
+        <>
+          <button title="Edit" className="text-blue-600 font-semibold mr-1" onClick={() => handleEdit(mark)}><EditIcon /></button>
+          <button title="Delete" className="text-red-600 font-semibold" onClick={() => handleDelete(mark._id)}><TrashIcon /></button>
+        </>
+      )}
+    </div>
+  </td>
+</tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex justify-end mt-2">
+            <button className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-800 transition disabled:opacity-50" type="button" onClick={handleBulkDelete} disabled={selectedMarkIds.length === 0 || marksLoading}>
+              Delete Selected
+            </button>
+          </div>
+          </>
+        ) : (
+          <div>No marks found for the selected filters.</div>
         )}
       </div>
-    </div>
-  );
+      </div>
+     );
 }
